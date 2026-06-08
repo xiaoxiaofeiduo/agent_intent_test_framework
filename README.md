@@ -6,10 +6,14 @@
 
 ```text
 agent_intent_test_framework/
+  manage.py              # Django 管理入口
+  intent_test_site/      # Django 项目配置与路由
+  intent_console/        # Django Web 控制台应用
   common.py              # 公共加载与 JSON 工具
   mock_llm_server.py     # Mock LLM 服务
   runner.py              # 测试执行器
-  web_server.py          # Web 控制台 + Mock LLM 一体服务
+  web_server.py          # 旧版 BaseHTTPServer 兼容入口
+  tool_executor.py       # Mock 工具执行模拟器
   config.example.yaml    # 配置示例
   scenarios/core.yaml    # 核心测试场景
   scenarios/coverage_6_8.yaml  # 覆盖测试指南第 6/7/8 章的专项场景
@@ -42,13 +46,14 @@ python -m pip install -r requirements.txt
 
 依赖说明：
 
+- `Django`：提供 Web 控制台、API 和 Mock LLM 靶站服务。
 - `PyYAML`：支持普通 YAML 场景文件。
 - `requests`：Runner 使用更稳定的 HTTP 客户端。
 - 如果不安装依赖，框架会自动降级到 Python 标准库实现。
 
 ```bash
 cd /Users/fanyunfei/Desktop/26.07/意图识别/agent_intent_test_framework
-python3 web_server.py --host 0.0.0.0 --port 18081 --scenarios-dir scenarios
+python3 manage.py runserver 0.0.0.0:18081
 ```
 
 启动后访问：

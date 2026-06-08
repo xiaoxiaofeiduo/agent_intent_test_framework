@@ -7,5 +7,6 @@ env/
 
 reports/
 mock_workspace/
+db.sqlite3
 
 .DS_Store
