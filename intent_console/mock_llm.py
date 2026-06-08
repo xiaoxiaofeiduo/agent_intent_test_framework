@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""可控 Mock 大模型服务。
+"""可控 Mock 大模型共享逻辑。
 
-该服务模拟 OpenAI /v1/chat/completions 接口，按场景返回指定 tool_calls。
-防护设备应配置为把大模型上游指向本服务，从而触发真实的意图识别链路。
+提供 OpenAI /v1/chat/completions 接口的模拟响应生成，
+供 Django 视图和独立 Mock LLM 服务共用。
 """
 
 from __future__ import annotations
 
-import argparse
-import json
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from common import compact_json, iter_data_files, load_json_compatible_yaml
+from .common import compact_json, iter_data_files, load_json_compatible_yaml
 
 
 def load_scenarios(scenarios_dir: str | Path) -> dict[str, dict[str, Any]]:
@@ -196,80 +193,4 @@ def build_stream_events(body: dict[str, Any], case: dict[str, Any]) -> list[dict
         }
     )
     return events
-
-
-class MockLLMHandler(BaseHTTPRequestHandler):
-    """处理 OpenAI-compatible 请求。"""
-
-    scenarios: dict[str, dict[str, Any]] = {}
-
-    def log_message(self, fmt: str, *args: Any) -> None:
-        """使用中文前缀输出访问日志。"""
-        print(f"[Mock LLM] {self.address_string()} - {fmt % args}")
-
-    def do_GET(self) -> None:
-        """提供简单健康检查接口。"""
-        if self.path == "/healthz":
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write("ok".encode("utf-8"))
-            return
-        self.send_error(404, "not found")
-
-    def do_POST(self) -> None:
-        """处理 /v1/chat/completions。"""
-        if self.path.rstrip("/") != "/v1/chat/completions":
-            self.send_error(404, "not found")
-            return
-
-        length = int(self.headers.get("Content-Length", "0") or 0)
-        raw_body = self.rfile.read(length).decode("utf-8")
-        try:
-            body = json.loads(raw_body) if raw_body else {}
-        except json.JSONDecodeError:
-            self.send_error(400, "invalid json")
-            return
-
-        case = find_case(body, self.scenarios)
-        delay_ms = int(case.get("mock_response", {}).get("delay_ms", 0) or 0)
-        if delay_ms > 0:
-            time.sleep(delay_ms / 1000)
-
-        if body.get("stream"):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
-            self.send_header("Cache-Control", "no-cache")
-            self.end_headers()
-            for event in build_stream_events(body, case):
-                self.wfile.write(f"data: {compact_json(event)}\n\n".encode("utf-8"))
-                self.wfile.flush()
-            self.wfile.write(b"data: [DONE]\n\n")
-            self.wfile.flush()
-            return
-
-        payload = compact_json(build_non_stream_response(body, case)).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-
-def main() -> None:
-    """启动 Mock LLM 服务。"""
-    parser = argparse.ArgumentParser(description="启动智能体意图识别 Mock LLM 服务")
-    parser.add_argument("--host", default="127.0.0.1", help="监听地址")
-    parser.add_argument("--port", type=int, default=18080, help="监听端口")
-    parser.add_argument("--scenarios-dir", default="scenarios", help="场景目录")
-    args = parser.parse_args()
-
-    MockLLMHandler.scenarios = load_scenarios(args.scenarios_dir)
-    server = ThreadingHTTPServer((args.host, args.port), MockLLMHandler)
-    print(f"Mock LLM 已启动: http://{args.host}:{args.port}/v1/chat/completions")
-    print(f"已加载场景数: {len(MockLLMHandler.scenarios)}")
-    server.serve_forever()
-
-
-if __name__ == "__main__":
-    main()
 

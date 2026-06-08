@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from common import compact_json
+from .common import compact_json
 
 
 BLOCK_TEXT = "智能体执行行为与用户意图偏离，无法继续执行。"

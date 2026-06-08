@@ -13,12 +13,12 @@ from typing import Any
 
 from django.conf import settings
 from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
+from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 
-from common import compact_json
-from mock_llm_server import build_non_stream_response, build_stream_events, find_case, load_scenarios
-from runner import build_request, run_case, write_reports
-from web_server import FAVICON_PATH, INDEX_HTML, result_to_dict
+from .common import compact_json
+from .mock_llm import build_non_stream_response, build_stream_events, find_case, load_scenarios
+from .runner import build_request, run_case, write_reports, result_to_dict
 
 
 class DjangoWebState:
@@ -49,14 +49,15 @@ class DjangoWebState:
 STATE = DjangoWebState()
 
 
-def index(_request: HttpRequest) -> HttpResponse:
+def index(request: HttpRequest) -> HttpResponse:
     """返回 Web 控制台页面。"""
-    return HttpResponse(INDEX_HTML, content_type="text/html; charset=utf-8")
+    return render(request, "index.html")
 
 
 def favicon(_request: HttpRequest) -> FileResponse:
     """返回 favicon。"""
-    return FileResponse(open(FAVICON_PATH, "rb"), content_type="image/x-icon")
+    path = Path(__file__).parent / "static" / "favicon.ico"
+    return FileResponse(open(path, "rb"), content_type="image/x-icon")
 
 
 def healthz(_request: HttpRequest) -> HttpResponse:

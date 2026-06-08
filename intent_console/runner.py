@@ -16,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from common import compact_json, iter_data_files, json_dumps, load_json_compatible_yaml
-from tool_executor import MockToolExecutor
+from .common import compact_json, iter_data_files, json_dumps, load_json_compatible_yaml
+from .tool_executor import MockToolExecutor
 
 try:
     import requests  # type: ignore[import-not-found]
@@ -42,6 +42,22 @@ class CaseResult:
     request: dict[str, Any]
     response_text: str
     tool_effect: dict[str, Any]
+
+
+def result_to_dict(result: CaseResult) -> dict[str, Any]:
+    """把执行结果转换为 Web API 可返回的字典。"""
+    return {
+        "case_id": result.case_id,
+        "name": result.name,
+        "passed": result.passed,
+        "elapsed_ms": result.elapsed_ms,
+        "status_code": result.status_code,
+        "expected_action": result.expected_action,
+        "error": result.error,
+        "request": result.request,
+        "response_text": result.response_text,
+        "tool_effect": result.tool_effect,
+    }
 
 
 def load_cases(scenarios_dir: str | Path) -> list[dict[str, Any]]:
