@@ -5,20 +5,20 @@ After=network.target
 [Service]
 Type=simple
 
-User=riversec
-Group=riversec
+User=yunfei
+Group=yunfei
 
-WorkingDirectory=/home/riversec/agent_intent_test_framework
+WorkingDirectory=/home/yunfei/agent_intent_test_framework
 
 ExecStart=/usr/bin/python3 \
-  /home/riversec/agent_intent_test_framework/manage.py \
+  /home/yunfei/agent_intent_test_framework/manage.py \
   runserver 0.0.0.0:18081
 
 Restart=always
 RestartSec=5
 
-StandardOutput=append:/home/riversec/agent_intent_test_framework/logs/server.log
-StandardError=append:/home/riversec/agent_intent_test_framework/logs/server.log
+StandardOutput=append:/home/yunfei/agent_intent_test_framework/logs/server.log
+StandardError=append:/home/yunfei/agent_intent_test_framework/logs/server.log
 
 [Install]
 WantedBy=multi-user.target
