@@ -1,9 +1,12 @@
 {
   "device_url": "http://10.10.121.15:18081/v1/chat/completions",
+  "origin_url": "http://10.10.121.15:18081/v1/chat/completions",
   "api_key": "",
+  "origin_api_key": "",
   "model": "mock-agent-intent-model",
   "timeout_seconds": 30,
   "default_stream": false,
   "mock_workspace": "mock_workspace",
-  "headers": {}
+  "headers": {},
+  "origin_headers": {}
 }

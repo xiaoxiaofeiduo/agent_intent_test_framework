@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 
 from django.conf import settings
 from django.test import SimpleTestCase, TestCase
@@ -107,6 +108,12 @@ class ViewEndpointTests(TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, '<!doctype html>')
+        self.assertContains(response, 'id="originUrl"')
+        self.assertContains(response, 'value="http://10.10.121.15:18081/v1/chat/completions"')
+        self.assertContains(response, 'id="originApiKey"')
+        self.assertContains(response, 'id="originHeadersText"')
+        self.assertContains(response, 'id="exportHtmlBtn"')
+        self.assertContains(response, 'id="exportJsonBtn"')
 
     def test_healthz_returns_ok(self) -> None:
         response = self.client.get("/healthz")
@@ -164,6 +171,23 @@ class ViewEndpointTests(TestCase):
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
         self.assertIn("至少选择一个用例", data["error"])
+
+    def test_report_download_returns_report_file(self) -> None:
+        report_dir = Path(settings.REPORT_DIR)
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / "test-report.md"
+        report_path.write_text("# report\n", encoding="utf-8")
+
+        response = self.client.get("/api/reports/test-report.md")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("attachment", response["Content-Disposition"])
+        content = b"".join(response.streaming_content).decode()
+        self.assertEqual(content, "# report\n")
+
+    def test_report_download_rejects_path_traversal(self) -> None:
+        response = self.client.get("/api/reports/../config.example.yaml")
+        self.assertEqual(response.status_code, 400)
 
     def test_mock_llm_non_stream(self) -> None:
         response = self.client.post(

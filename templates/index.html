@@ -19,9 +19,13 @@
     textarea { min-height:120px; font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12px; }
     button { border:1px solid var(--blue); background:var(--blue); color:#fff; border-radius:6px; padding:8px 12px; cursor:pointer; font:inherit; }
     button.secondary { background:#fff; color:var(--blue); }
+    button.copy-btn { padding:4px 8px; font-size:12px; line-height:1.2; }
+    button.copy-btn.copied { border-color:var(--green); color:var(--green); }
     button:disabled { opacity:.5; cursor:not-allowed; }
     .row { display:flex; gap:8px; align-items:center; }
     .row > * { flex:1; }
+    .result-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .result-actions { display:flex; gap:8px; flex-wrap:wrap; }
     .hint { color:var(--muted); font-size:12px; line-height:1.5; }
     .case-list { max-height:560px; overflow:auto; border:1px solid var(--border); border-radius:6px; }
     .case-item { display:grid; grid-template-columns: 28px 1fr auto; gap:8px; align-items:center; padding:8px; border-bottom:1px solid #eef1f5; cursor:pointer; }
@@ -66,6 +70,8 @@
     .file-preview h4 { margin:0 0 6px; font-size:12px; color:var(--muted); }
     details { margin-top:10px; }
     summary { cursor:pointer; color:var(--blue); font-size:13px; }
+    .copy-summary { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .copy-summary span { min-width:0; }
     @media (max-width: 980px) { main { grid-template-columns:1fr; } .split { grid-template-columns:1fr; } }
     @media (max-width: 980px) { .detail-grid { grid-template-columns:1fr; } }
   </style>
@@ -79,6 +85,8 @@
     <div>
       <section>
         <h2>防护设备入口</h2>
+        <label>origin_url（可选，不经过防护设备的原站入口，用于响应对比）</label>
+        <input id="originUrl" value="http://10.10.121.15:18081/v1/chat/completions" placeholder="http://原站地址/v1/chat/completions" />
         <label>device_url（必须填写防护设备入口，不是 Mock 地址）</label>
         <input id="deviceUrl" value="http://10.10.121.15:18081/v1/chat/completions" placeholder="http://防护设备地址/v1/chat/completions" />
         <div class="row">
@@ -91,8 +99,12 @@
             <input id="timeoutSeconds" type="number" value="30" />
           </div>
         </div>
+        <label>原站 API Key（可选，留空复用 API Key）</label>
+        <input id="originApiKey" placeholder="可为空" />
         <label>额外请求头 JSON</label>
         <textarea id="headersText" spellcheck="false">{}</textarea>
+        <label>原站额外请求头 JSON（可选，会覆盖同名请求头）</label>
+        <textarea id="originHeadersText" spellcheck="false">{}</textarea>
         <p class="hint">防护设备的大模型上游应配置为页面顶部显示的 Mock Endpoint。</p>
       </section>
 
@@ -133,12 +145,18 @@
       </section>
 
       <section style="margin-top:16px;">
-        <h2>执行结果</h2>
+        <div class="result-heading">
+          <h2>执行结果</h2>
+          <div class="result-actions">
+            <button class="secondary" id="exportHtmlBtn" disabled>导出 HTML</button>
+            <button class="secondary" id="exportJsonBtn" disabled>导出 JSON</button>
+          </div>
+        </div>
         <div id="summary" class="hint"></div>
         <div style="overflow:auto;">
           <table>
             <thead>
-              <tr><th>用例</th><th>预期</th><th>状态码</th><th>耗时</th><th>结果</th><th>错误</th></tr>
+              <tr><th>用例</th><th>预期</th><th>原站状态码</th><th>防护状态码</th><th>耗时</th><th>结果</th><th>错误</th></tr>
             </thead>
             <tbody id="resultBody"></tbody>
           </table>
@@ -148,7 +166,7 @@
   </main>
 
   <script>
-    const state = { cases: [], activeId: null, selected: new Set(), overrides: {} };
+    const state = { cases: [], activeId: null, selected: new Set(), overrides: {}, copyTexts: {}, reports: {} };
     const $ = (id) => document.getElementById(id);
     const blockText = '智能体执行行为与用户意图偏离，无法继续执行。';
 
@@ -253,6 +271,12 @@
         $('statusText').textContent = '额外请求头不是合法 JSON：' + err.message;
         return;
       }
+      const originHeadersText = $('originHeadersText').value.trim() || '{}';
+      let originHeaders = {};
+      try { originHeaders = JSON.parse(originHeadersText); } catch (err) {
+        $('statusText').textContent = '原站额外请求头不是合法 JSON：' + err.message;
+        return;
+      }
       if (!$('deviceUrl').value.trim()) {
         $('statusText').textContent = '请填写防护设备入口 device_url';
         return;
@@ -266,9 +290,12 @@
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             device_url: $('deviceUrl').value.trim(),
+            origin_url: $('originUrl').value.trim(),
             api_key: $('apiKey').value.trim(),
+            origin_api_key: $('originApiKey').value.trim(),
             timeout_seconds: Number($('timeoutSeconds').value || 30),
             headers,
+            origin_headers: originHeaders,
             case_ids: caseIds,
             case_overrides: state.overrides
           })
@@ -283,9 +310,16 @@
     }
 
     function renderResults(data) {
-      $('summary').textContent = `通过率：${data.passed}/${data.total}，报告：${data.report_md || '-'}`;
+      state.reports = {
+        html: data.report_html_url || '',
+        json: data.report_json_url || ''
+      };
+      $('exportHtmlBtn').disabled = !state.reports.html;
+      $('exportJsonBtn').disabled = !state.reports.json;
+      $('summary').textContent = `通过率：${data.passed}/${data.total}，报告：${data.report_html || data.report_json || '-'}`;
       const body = $('resultBody');
       body.innerHTML = '';
+      state.copyTexts = {};
       for (const [index, r] of (data.results || []).entries()) {
         const tr = document.createElement('tr');
         tr.className = 'result-row';
@@ -296,6 +330,7 @@
         tr.innerHTML = `
           <td><div>${r.name}</div><div class="case-id">${r.case_id}</div></td>
           <td>${r.expected_action}</td>
+          <td>${r.origin_status_code ?? '-'}</td>
           <td>${r.status_code ?? '-'}</td>
           <td>${r.elapsed_ms} ms</td>
           <td class="${r.passed ? 'ok' : 'fail'}">${r.passed ? '通过' : '失败'}</td>
@@ -306,7 +341,7 @@
         const detailTr = document.createElement('tr');
         detailTr.id = `detail-${index}`;
         detailTr.className = 'detail-row';
-        detailTr.innerHTML = `<td colspan="6">${buildResultDetail(r)}</td>`;
+        detailTr.innerHTML = `<td colspan="7">${buildResultDetail(r)}</td>`;
         body.appendChild(detailTr);
       }
     }
@@ -317,7 +352,15 @@
       const userMessage = messages.findLast ? messages.findLast(m => m.role === 'user') : [...messages].reverse().find(m => m.role === 'user');
       const tools = Array.isArray(req.tools) ? req.tools : [];
       const response = r.response_text || '';
+      const requestText = pretty(req);
+      const responseText = formatResponseText(response);
+      const requestCopyId = `result-${escapeCopyId(r.case_id)}-request`;
+      const responseCopyId = `result-${escapeCopyId(r.case_id)}-response`;
+      const originResponse = r.origin_response_text || '';
+      const originResponseCopyId = `result-${escapeCopyId(r.case_id)}-origin-response`;
       const responseSummary = summarizeResponse(response);
+      const originResponseSummary = summarizeResponse(originResponse);
+      const comparison = r.comparison || {};
       return `
         <div class="detail-panel">
           <div class="detail-grid">
@@ -328,16 +371,11 @@
               <div class="kv"><span>用户指令</span><span>${escapeHtml((userMessage && userMessage.content) || '-')}</span></div>
               <div class="kv"><span>工具数量</span><span>${tools.length}</span></div>
               <div class="kv"><span>Case ID</span><span>${escapeHtml((req.metadata && req.metadata.intent_case_id) || r.case_id)}</span></div>
-              <details><summary>查看完整请求</summary><pre>${escapeHtml(pretty(req))}</pre></details>
+              ${buildCopyableDetails('查看完整请求', requestCopyId, requestText)}
             </div>
-            <div class="detail-card">
-              <h3>响应概览</h3>
-              <div class="kv"><span>状态码</span><span>${r.status_code ?? '-'}</span></div>
-              <div class="kv"><span>断言结果</span><span class="${r.passed ? 'ok' : 'fail'}">${r.passed ? '通过' : '失败'}</span></div>
-              <div class="kv"><span>命中拦截</span><span>${response.includes(blockText) ? '是' : '否'}</span></div>
-              <div class="kv"><span>响应类型</span><span>${escapeHtml(responseSummary.type)}</span></div>
-              <div class="kv"><span>摘要</span><span>${escapeHtml(responseSummary.summary)}</span></div>
-              <details><summary>查看完整响应</summary><pre>${escapeHtml(formatResponseText(response))}</pre></details>
+            <div class="detail-card full">
+              <h3>原站与防护响应对比</h3>
+              ${buildResponseComparisonDetail(r, originResponseSummary, responseSummary, comparison, originResponseCopyId, responseCopyId, responseText)}
             </div>
             <div class="detail-card full">
               <h3>Mock 工具执行效果</h3>
@@ -346,6 +384,94 @@
           </div>
         </div>
       `;
+    }
+
+    function buildResponseComparisonDetail(r, originSummary, protectedSummary, comparison, originCopyId, responseCopyId, responseText) {
+      const originText = r.origin_error
+        ? `原站请求失败：${r.origin_error}`
+        : formatResponseText(r.origin_response_text || '');
+      const comparisonMetrics = comparison.enabled ? `
+          ${buildMetric('状态码变化', comparison.status_changed ? '是' : '否', comparison.status_changed ? 'modified' : 'unchanged')}
+          ${buildMetric('拦截变化', comparison.block_changed ? '是' : '否', comparison.block_changed ? 'modified' : 'unchanged')}
+          ${buildMetric('原站字节', comparison.origin_response_bytes || 0, 'unchanged')}
+          ${buildMetric('防护字节', comparison.protected_response_bytes || 0, 'unchanged')}
+        ` : `${buildMetric('原站对比', '未启用', 'unchanged')}`;
+      const originPanel = comparison.enabled ? `
+          <div>
+            <div class="kv"><span>原站状态</span><span>${r.origin_status_code ?? '-'}</span></div>
+            <div class="kv"><span>原站耗时</span><span>${r.origin_elapsed_ms || 0} ms</span></div>
+            <div class="kv"><span>原站类型</span><span>${escapeHtml(originSummary.type)}</span></div>
+            <div class="kv"><span>原站摘要</span><span>${escapeHtml(r.origin_error || originSummary.summary)}</span></div>
+            ${buildCopyableDetails('查看原站完整响应', originCopyId, originText)}
+          </div>
+        ` : '<div class="hint">未配置原站入口，本次只请求防护设备。</div>';
+      return `
+        <div class="metric-row">
+          ${buildMetric('断言', r.passed ? '通过' : '失败', r.passed ? 'pass' : 'block')}
+          ${buildMetric('命中拦截', responseText.includes(blockText) ? '是' : '否', responseText.includes(blockText) ? 'block' : 'unchanged')}
+          ${comparisonMetrics}
+        </div>
+        <div class="split">
+          ${originPanel}
+          <div>
+            <div class="kv"><span>防护状态</span><span>${r.status_code ?? '-'}</span></div>
+            <div class="kv"><span>防护耗时</span><span>${r.elapsed_ms || 0} ms</span></div>
+            <div class="kv"><span>防护类型</span><span>${escapeHtml(protectedSummary.type)}</span></div>
+            <div class="kv"><span>防护摘要</span><span>${escapeHtml(protectedSummary.summary)}</span></div>
+            ${buildCopyableDetails('查看防护完整响应', responseCopyId, responseText)}
+          </div>
+        </div>
+      `;
+    }
+
+    function buildCopyableDetails(title, copyId, text) {
+      state.copyTexts[copyId] = text;
+      return `
+        <details>
+          <summary class="copy-summary">
+            <span>${escapeHtml(title)}</span>
+            <button class="secondary copy-btn" type="button" onclick="copyDetailText(event, '${copyId}')">复制</button>
+          </summary>
+          <pre>${escapeHtml(text)}</pre>
+        </details>
+      `;
+    }
+
+    function escapeCopyId(value) {
+      return String(value || '')
+        .replace(/[^a-zA-Z0-9_-]+/g, '-')
+        .replace(/^-+|-+$/g, '') || 'unknown';
+    }
+
+    async function copyDetailText(event, copyId) {
+      event.preventDefault();
+      event.stopPropagation();
+      const button = event.currentTarget;
+      const text = state.copyTexts[copyId] || '';
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const textarea = document.createElement('textarea');
+          textarea.value = text;
+          textarea.setAttribute('readonly', '');
+          textarea.style.position = 'fixed';
+          textarea.style.left = '-9999px';
+          document.body.appendChild(textarea);
+          textarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textarea);
+        }
+        button.textContent = '已复制';
+        button.classList.add('copied');
+        setTimeout(() => {
+          button.textContent = '复制';
+          button.classList.remove('copied');
+        }, 1200);
+      } catch (err) {
+        button.textContent = '复制失败';
+        setTimeout(() => { button.textContent = '复制'; }, 1600);
+      }
     }
 
     function buildToolEffectDetail(effect, caseId) {
@@ -587,6 +713,12 @@
         .replaceAll("'", '&#39;');
     }
 
+    function exportReport(type) {
+      const url = state.reports[type];
+      if (!url) return;
+      window.location.href = url;
+    }
+
     $('caseFilter').oninput = renderCases;
     $('selectAllBtn').onclick = () => {
       const keyword = $('caseFilter').value.trim();
@@ -606,6 +738,8 @@
     $('previewBtn').onclick = previewActiveCase;
     $('runSelectedBtn').onclick = () => runCases([...state.selected]);
     $('runActiveBtn').onclick = () => state.activeId && runCases([state.activeId]);
+    $('exportHtmlBtn').onclick = () => exportReport('html');
+    $('exportJsonBtn').onclick = () => exportReport('json');
     loadCases().catch(err => $('statusText').textContent = '加载用例失败：' + err.message);
   </script>
 </body>

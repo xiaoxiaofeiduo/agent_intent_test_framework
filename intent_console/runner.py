@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import time
@@ -42,6 +43,10 @@ class CaseResult:
     request: dict[str, Any]
     response_text: str
     tool_effect: dict[str, Any]
+    origin_status_code: int | None = None
+    origin_elapsed_ms: int = 0
+    origin_response_text: str = ""
+    origin_error: str = ""
 
 
 def result_to_dict(result: CaseResult) -> dict[str, Any]:
@@ -57,6 +62,11 @@ def result_to_dict(result: CaseResult) -> dict[str, Any]:
         "request": result.request,
         "response_text": result.response_text,
         "tool_effect": result.tool_effect,
+        "origin_status_code": result.origin_status_code,
+        "origin_elapsed_ms": result.origin_elapsed_ms,
+        "origin_response_text": result.origin_response_text,
+        "origin_error": result.origin_error,
+        "comparison": build_response_comparison(result),
     }
 
 
@@ -168,6 +178,33 @@ def build_headers(config: dict[str, Any]) -> dict[str, str]:
     return headers
 
 
+def build_origin_headers(config: dict[str, Any]) -> dict[str, str]:
+    """构造原站请求头，默认复用防护侧请求头。"""
+    headers = build_headers(config)
+    origin_headers = config.get("origin_headers")
+    if isinstance(origin_headers, dict):
+        headers.update(origin_headers)
+    origin_api_key = config.get("origin_api_key")
+    if origin_api_key:
+        headers["Authorization"] = f"Bearer {origin_api_key}"
+    return headers
+
+
+def build_response_comparison(result: CaseResult) -> dict[str, Any]:
+    """生成原站与防护响应的轻量对比信息。"""
+    protected_blocked = DEFAULT_BLOCK_TEXT in result.response_text
+    origin_blocked = DEFAULT_BLOCK_TEXT in result.origin_response_text
+    return {
+        "enabled": bool(result.origin_response_text or result.origin_error or result.origin_status_code),
+        "status_changed": result.origin_status_code != result.status_code,
+        "protected_blocked": protected_blocked,
+        "origin_blocked": origin_blocked,
+        "block_changed": origin_blocked != protected_blocked,
+        "protected_response_bytes": len(result.response_text.encode("utf-8")),
+        "origin_response_bytes": len(result.origin_response_text.encode("utf-8")),
+    }
+
+
 def assert_case(
     case: dict[str, Any],
     status_code: int | None,
@@ -212,12 +249,30 @@ def run_case(config: dict[str, Any], case: dict[str, Any]) -> CaseResult:
     """执行单个测试场景。"""
     body = build_request(config, case)
     headers = build_headers(config)
-    started_at = time.time()
     status_code: int | None = None
     response_text = ""
     error = ""
     tool_effect: dict[str, Any] = {}
+    origin_status_code: int | None = None
+    origin_elapsed_ms = 0
+    origin_response_text = ""
+    origin_error = ""
+    origin_url = str(config.get("origin_url") or "").strip()
     try:
+        if origin_url:
+            origin_started_at = time.time()
+            try:
+                origin_status_code, origin_response_text = http_post_json(
+                    origin_url,
+                    body,
+                    build_origin_headers(config),
+                    int(config.get("timeout_seconds", 30)),
+                )
+            except Exception as exc:  # noqa: BLE001 - 原站对比失败不应阻断防护侧断言
+                origin_error = f"{type(exc).__name__}: {exc}"
+            origin_elapsed_ms = int((time.time() - origin_started_at) * 1000)
+
+        started_at = time.time()
         status_code, response_text = http_post_json(
             config["device_url"],
             body,
@@ -231,7 +286,7 @@ def run_case(config: dict[str, Any], case: dict[str, Any]) -> CaseResult:
         passed = False
         error = f"{type(exc).__name__}: {exc}"
 
-    elapsed_ms = int((time.time() - started_at) * 1000)
+    elapsed_ms = int((time.time() - started_at) * 1000) if "started_at" in locals() else 0
     return CaseResult(
         case_id=case["id"],
         name=case.get("name", case["id"]),
@@ -243,15 +298,133 @@ def run_case(config: dict[str, Any], case: dict[str, Any]) -> CaseResult:
         request=body,
         response_text=response_text,
         tool_effect=tool_effect,
+        origin_status_code=origin_status_code,
+        origin_elapsed_ms=origin_elapsed_ms,
+        origin_response_text=origin_response_text,
+        origin_error=origin_error,
     )
 
 
-def write_reports(results: list[CaseResult], report_dir: str | Path) -> tuple[Path, Path]:
-    """写入 JSON 和 Markdown 报告。"""
+def html_escape(value: Any) -> str:
+    """转义 HTML 文本。"""
+    return html.escape(str(value), quote=True)
+
+
+def format_report_json(value: Any) -> str:
+    """格式化报告中的 JSON 数据。"""
+    return html_escape(json_dumps(value))
+
+
+def render_html_report(results: list[CaseResult], executed_at: str) -> str:
+    """生成包含完整请求、响应和工具效果的 HTML 报告。"""
+    passed_count = sum(1 for item in results if item.passed)
+    rows: list[str] = []
+    detail_sections: list[str] = []
+    for item in results:
+        result_text = "通过" if item.passed else "失败"
+        result_class = "pass" if item.passed else "fail"
+        comparison = build_response_comparison(item)
+        tool_effect = item.tool_effect or {}
+        rows.append(
+            "<tr>"
+            f"<td><a href=\"#{html_escape(item.case_id)}\">{html_escape(item.case_id)}</a></td>"
+            f"<td>{html_escape(item.name)}</td>"
+            f"<td>{html_escape(item.expected_action)}</td>"
+            f"<td>{html_escape(item.origin_status_code if item.origin_status_code is not None else '-')}</td>"
+            f"<td>{html_escape(item.status_code if item.status_code is not None else '-')}</td>"
+            f"<td>{html_escape(item.elapsed_ms)} ms</td>"
+            f"<td class=\"{result_class}\">{result_text}</td>"
+            f"<td>{html_escape(item.error or '')}</td>"
+            "</tr>"
+        )
+        detail_sections.append(
+            f"""
+            <section class="case-detail" id="{html_escape(item.case_id)}">
+              <h2>{html_escape(item.case_id)} <span class="{result_class}">{result_text}</span></h2>
+              <div class="grid">
+                <div>
+                  <h3>基础信息</h3>
+                  <dl>
+                    <dt>名称</dt><dd>{html_escape(item.name)}</dd>
+                    <dt>预期动作</dt><dd>{html_escape(item.expected_action)}</dd>
+                    <dt>防护状态码</dt><dd>{html_escape(item.status_code if item.status_code is not None else "-")}</dd>
+                    <dt>防护耗时</dt><dd>{html_escape(item.elapsed_ms)} ms</dd>
+                    <dt>断言错误</dt><dd>{html_escape(item.error or "-")}</dd>
+                  </dl>
+                </div>
+                <div>
+                  <h3>原站与防护对比</h3>
+                  <dl>
+                    <dt>原站状态码</dt><dd>{html_escape(item.origin_status_code if item.origin_status_code is not None else "-")}</dd>
+                    <dt>原站耗时</dt><dd>{html_escape(item.origin_elapsed_ms)} ms</dd>
+                    <dt>状态码变化</dt><dd>{html_escape("是" if comparison["status_changed"] else "否")}</dd>
+                    <dt>拦截变化</dt><dd>{html_escape("是" if comparison["block_changed"] else "否")}</dd>
+                    <dt>原站字节</dt><dd>{html_escape(comparison["origin_response_bytes"])}</dd>
+                    <dt>防护字节</dt><dd>{html_escape(comparison["protected_response_bytes"])}</dd>
+                    <dt>原站错误</dt><dd>{html_escape(item.origin_error or "-")}</dd>
+                  </dl>
+                </div>
+              </div>
+              <details open><summary>完整请求</summary><pre>{format_report_json(item.request)}</pre></details>
+              <details open><summary>原站完整响应</summary><pre>{html_escape(item.origin_response_text or item.origin_error or "")}</pre></details>
+              <details open><summary>防护完整响应</summary><pre>{html_escape(item.response_text)}</pre></details>
+              <details><summary>工具执行效果</summary><pre>{format_report_json(tool_effect)}</pre></details>
+              <details><summary>机器可读完整结果</summary><pre>{format_report_json(result_to_dict(item))}</pre></details>
+            </section>
+            """
+        )
+
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>智能体意图识别测试报告</title>
+  <style>
+    body {{ margin:0; padding:24px; background:#f6f8fb; color:#111827; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
+    h1 {{ margin:0 0 8px; font-size:24px; }}
+    h2 {{ margin:0 0 12px; font-size:18px; }}
+    h3 {{ margin:0 0 8px; font-size:15px; }}
+    .meta {{ color:#64748b; margin-bottom:18px; }}
+    .summary, .case-detail {{ background:#fff; border:1px solid #d8dee8; border-radius:8px; padding:16px; margin-bottom:16px; }}
+    table {{ width:100%; border-collapse:collapse; font-size:13px; }}
+    th, td {{ border-bottom:1px solid #e5e7eb; padding:8px; text-align:left; vertical-align:top; }}
+    th {{ background:#f8fafc; color:#475569; }}
+    a {{ color:#2563eb; text-decoration:none; }}
+    .pass {{ color:#15803d; font-weight:600; }}
+    .fail {{ color:#b91c1c; font-weight:600; }}
+    .grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; }}
+    dl {{ display:grid; grid-template-columns:112px minmax(0,1fr); gap:6px 10px; margin:0; }}
+    dt {{ color:#64748b; }}
+    dd {{ margin:0; word-break:break-word; }}
+    details {{ margin-top:12px; }}
+    summary {{ cursor:pointer; color:#2563eb; }}
+    pre {{ background:#0f172a; color:#dbeafe; border-radius:6px; padding:12px; overflow:auto; max-height:520px; white-space:pre-wrap; overflow-wrap:anywhere; }}
+  </style>
+</head>
+<body>
+  <h1>智能体意图识别测试报告</h1>
+  <div class="meta">执行时间：{html_escape(executed_at)} | 通过率：{html_escape(passed_count)}/{html_escape(len(results))}</div>
+  <section class="summary">
+    <h2>结果汇总</h2>
+    <table>
+      <thead><tr><th>Case</th><th>名称</th><th>预期</th><th>原站状态码</th><th>防护状态码</th><th>耗时</th><th>结果</th><th>错误</th></tr></thead>
+      <tbody>{"".join(rows)}</tbody>
+    </table>
+  </section>
+  {"".join(detail_sections)}
+</body>
+</html>
+"""
+
+
+def write_reports(results: list[CaseResult], report_dir: str | Path) -> tuple[Path, Path, Path]:
+    """写入 JSON、Markdown 和 HTML 报告。"""
     output_dir = Path(report_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    executed_at = datetime.now().isoformat(timespec="seconds")
     json_path = output_dir / f"run-{timestamp}.json"
+    html_path = output_dir / f"run-{timestamp}.html"
     md_path = output_dir / "latest.md"
 
     json_data = [
@@ -266,30 +439,36 @@ def write_reports(results: list[CaseResult], report_dir: str | Path) -> tuple[Pa
             "request": item.request,
             "response_text": item.response_text,
             "tool_effect": item.tool_effect,
+            "origin_status_code": item.origin_status_code,
+            "origin_elapsed_ms": item.origin_elapsed_ms,
+            "origin_response_text": item.origin_response_text,
+            "origin_error": item.origin_error,
+            "comparison": build_response_comparison(item),
         }
         for item in results
     ]
     json_path.write_text(json_dumps(json_data), encoding="utf-8")
+    html_path.write_text(render_html_report(results, executed_at), encoding="utf-8")
 
     passed_count = sum(1 for item in results if item.passed)
     lines = [
         "# 智能体意图识别测试报告",
         "",
-        f"- 执行时间：{datetime.now().isoformat(timespec='seconds')}",
+        f"- 执行时间：{executed_at}",
         f"- 通过率：{passed_count}/{len(results)}",
         "",
-        "| Case | 预期 | 状态码 | 耗时(ms) | 结果 | 错误 |",
-        "| --- | --- | ---: | ---: | --- | --- |",
+        "| Case | 预期 | 原站状态码 | 防护状态码 | 防护耗时(ms) | 结果 | 错误 |",
+        "| --- | --- | ---: | ---: | ---: | --- | --- |",
     ]
     for item in results:
         result_text = "通过" if item.passed else "失败"
         error = item.error.replace("\n", " ") if item.error else ""
         lines.append(
-            f"| `{item.case_id}` | {item.expected_action} | {item.status_code} | "
+            f"| `{item.case_id}` | {item.expected_action} | {item.origin_status_code} | {item.status_code} | "
             f"{item.elapsed_ms} | {result_text} | {error} |"
         )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return json_path, md_path
+    return json_path, md_path, html_path
 
 
 def main() -> None:
@@ -300,9 +479,12 @@ def main() -> None:
     parser.add_argument("--case", help="只执行指定 case id")
     parser.add_argument("--dry-run", action="store_true", help="只列出场景，不发送请求")
     parser.add_argument("--report-dir", default="reports", help="报告目录")
+    parser.add_argument("--origin-url", help="不经过防护设备的原站 Chat Completions 地址，用于响应对比")
     args = parser.parse_args()
 
     config = load_json_compatible_yaml(args.config)
+    if args.origin_url:
+        config["origin_url"] = args.origin_url
     cases = load_cases(args.scenarios_dir)
     if args.case:
         cases = [case for case in cases if case.get("id") == args.case]
@@ -316,11 +498,12 @@ def main() -> None:
         return
 
     results = [run_case(config, case) for case in cases]
-    json_path, md_path = write_reports(results, args.report_dir)
+    json_path, md_path, html_path = write_reports(results, args.report_dir)
     passed_count = sum(1 for item in results if item.passed)
     print(f"执行完成，通过 {passed_count}/{len(results)}")
     print(f"JSON 报告: {json_path}")
     print(f"Markdown 报告: {md_path}")
+    print(f"HTML 报告: {html_path}")
     if passed_count != len(results):
         raise SystemExit(1)
 

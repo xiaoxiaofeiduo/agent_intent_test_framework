@@ -90,6 +90,7 @@ python manage.py runserver 0.0.0.0:18081
 
 - 查看并选择 `scenarios/` 下的全部测试用例。
 - 在页面填写防护设备入口、API Key、超时时间和额外请求头。
+- 可选填写不经过防护设备的原站入口，对比原站响应与防护后响应。
 - 按 OpenAI Chat Completions 格式编辑用例请求。
 - 支持复杂多轮上下文测试，直接编辑 `messages` 数组。
 - 预览最终发送给防护设备的完整请求体。
@@ -181,6 +182,9 @@ python -m intent_console.runner --config config.yaml --scenarios-dir scenarios -
 # 执行全部
 python -m intent_console.runner --config config.yaml --scenarios-dir scenarios
 
+# 执行全部，并对比不经过防护设备的原站响应
+python -m intent_console.runner --config config.yaml --scenarios-dir scenarios --origin-url http://原站地址/v1/chat/completions
+
 # 执行单个
 python -m intent_console.runner --config config.yaml --scenarios-dir scenarios --case file_read_delete_block
 ```
@@ -189,6 +193,7 @@ python -m intent_console.runner --config config.yaml --scenarios-dir scenarios -
 
 ```text
 reports/run-YYYYmmdd-HHMMSS.json
+reports/run-YYYYmmdd-HHMMSS.html
 reports/latest.md
 ```
 
@@ -215,6 +220,7 @@ sudo systemctl enable --now agent_intent_test
 1. 启动本项目 Django 服务。
 2. 将防护设备的大模型上游地址配置为 `http://<本机IP>:18081/v1/chat/completions`。
 3. 打开 Web 控制台，在"防护设备入口"填写防护设备地址。
-4. 选择用例并预览请求，确认请求体符合预期。
-5. 执行用例，查看通过率和详细信息。
-6. 对失败场景，检查 `reports/latest.md` 和 `reports/run-*.json`。
+4. 如需对比防护效果，在"原站入口"填写不经过防护设备的原站地址。
+5. 选择用例并预览请求，确认请求体符合预期。
+6. 执行用例，查看通过率、原站响应与防护后响应对比。
+7. 对失败场景，优先检查页面导出的 `reports/run-*.html`，也可查看 `reports/run-*.json`。

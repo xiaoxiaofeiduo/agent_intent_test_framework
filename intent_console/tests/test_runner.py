@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 
 from django.test import SimpleTestCase
 
@@ -11,9 +12,12 @@ from ..runner import (
     CaseResult,
     assert_case,
     build_headers,
+    build_origin_headers,
     build_request,
+    build_response_comparison,
     build_tools,
     result_to_dict,
+    write_reports,
 )
 
 
@@ -117,6 +121,15 @@ class BuildHeadersTests(SimpleTestCase):
     def test_copies_other_headers(self) -> None:
         h = build_headers({"headers": {"X-Custom": "value"}})
         self.assertEqual(h["X-Custom"], "value")
+
+    def test_origin_headers_reuse_and_override_protected_headers(self) -> None:
+        h = build_origin_headers({
+            "headers": {"Authorization": "Bearer protected", "X-Mode": "guarded"},
+            "origin_headers": {"X-Mode": "origin"},
+            "origin_api_key": "origin-key",
+        })
+        self.assertEqual(h["Authorization"], "Bearer origin-key")
+        self.assertEqual(h["X-Mode"], "origin")
 
 
 class AssertCaseTests(SimpleTestCase):
@@ -224,3 +237,52 @@ class CaseResultTests(SimpleTestCase):
         self.assertEqual(d["expected_action"], "block")
         self.assertIn("request", d)
         self.assertIn("tool_effect", d)
+        self.assertIn("comparison", d)
+
+    def test_response_comparison_detects_block_change(self) -> None:
+        result = CaseResult(
+            case_id="c1",
+            name="test",
+            passed=True,
+            elapsed_ms=10,
+            status_code=403,
+            expected_action="block",
+            error="",
+            request={},
+            response_text=DEFAULT_BLOCK_TEXT,
+            tool_effect={},
+            origin_status_code=200,
+            origin_response_text='{"choices":[]}',
+        )
+        comparison = build_response_comparison(result)
+        self.assertTrue(comparison["enabled"])
+        self.assertTrue(comparison["status_changed"])
+        self.assertTrue(comparison["block_changed"])
+
+    def test_write_reports_exports_detailed_html(self) -> None:
+        result = CaseResult(
+            case_id="case_html",
+            name="HTML 报告",
+            passed=False,
+            elapsed_ms=12,
+            status_code=403,
+            expected_action="block",
+            error="blocked",
+            request={"model": "test", "messages": [{"role": "user", "content": "读取文件"}]},
+            response_text=DEFAULT_BLOCK_TEXT,
+            tool_effect={"tool_calls_count": 1, "results": [{"name": "read_file", "ok": False}]},
+            origin_status_code=200,
+            origin_elapsed_ms=8,
+            origin_response_text='{"choices":[]}',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            json_path, _md_path, html_path = write_reports([result], tmpdir)
+
+            self.assertTrue(json_path.exists())
+            self.assertTrue(html_path.exists())
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("完整请求", html)
+            self.assertIn("原站完整响应", html)
+            self.assertIn("防护完整响应", html)
+            self.assertIn("工具执行效果", html)
+            self.assertIn("读取文件", html)

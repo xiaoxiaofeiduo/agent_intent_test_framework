@@ -10,6 +10,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from django.conf import settings
 from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
@@ -19,6 +20,9 @@ from django.views.decorators.csrf import csrf_exempt
 from .common import compact_json
 from .mock_llm import build_non_stream_response, build_stream_events, find_case, load_scenarios
 from .runner import build_request, run_case, write_reports, result_to_dict
+
+
+DEFAULT_ORIGIN_URL = "http://10.10.121.15:18081/v1/chat/completions"
 
 
 class DjangoWebState:
@@ -63,6 +67,19 @@ def favicon(_request: HttpRequest) -> FileResponse:
 def healthz(_request: HttpRequest) -> HttpResponse:
     """健康检查。"""
     return HttpResponse("ok", content_type="text/plain; charset=utf-8")
+
+
+def report_download(request: HttpRequest, filename: str) -> FileResponse | JsonResponse:
+    """下载 reports 目录下的测试报告。"""
+    if request.method != "GET":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    if Path(filename).name != filename or not filename.endswith((".json", ".md", ".html")):
+        return JsonResponse({"error": "invalid report filename"}, status=400)
+    path = (STATE.report_dir / filename).resolve()
+    report_dir = STATE.report_dir.resolve()
+    if report_dir not in path.parents or not path.exists() or not path.is_file():
+        return JsonResponse({"error": "report not found"}, status=404)
+    return FileResponse(open(path, "rb"), as_attachment=True, filename=filename)
 
 
 def cases(request: HttpRequest) -> JsonResponse:
@@ -126,20 +143,27 @@ def run_cases(request: HttpRequest) -> JsonResponse:
 
         config = {
             "device_url": body.get("device_url", ""),
+            "origin_url": body.get("origin_url") or DEFAULT_ORIGIN_URL,
             "api_key": body.get("api_key", ""),
+            "origin_api_key": body.get("origin_api_key", ""),
             "headers": body.get("headers", {}) if isinstance(body.get("headers"), dict) else {},
+            "origin_headers": body.get("origin_headers", {}) if isinstance(body.get("origin_headers"), dict) else {},
             "timeout_seconds": int(body.get("timeout_seconds") or 30),
             "model": "mock-agent-intent-model",
             "mock_workspace": str(STATE.mock_workspace),
         }
         results = [run_case(config, case) for case in selected_cases]
-        json_path, md_path = write_reports(results, STATE.report_dir)
+        json_path, md_path, html_path = write_reports(results, STATE.report_dir)
         payload = {
             "ok": all(item.passed for item in results),
             "passed": sum(1 for item in results if item.passed),
             "total": len(results),
             "report_json": str(json_path),
             "report_md": str(md_path),
+            "report_html": str(html_path),
+            "report_json_url": f"/api/reports/{quote(json_path.name)}",
+            "report_md_url": f"/api/reports/{quote(md_path.name)}",
+            "report_html_url": f"/api/reports/{quote(html_path.name)}",
             "results": [result_to_dict(item) for item in results],
         }
         return JsonResponse(payload)
