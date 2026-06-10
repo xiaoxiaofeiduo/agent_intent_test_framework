@@ -8,5 +8,6 @@ env/
 reports/
 mock_workspace/
 db.sqlite3
+scenarios/functional_validation_xmind.yaml
 
 .DS_Store

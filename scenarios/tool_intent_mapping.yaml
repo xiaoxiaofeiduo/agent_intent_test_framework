@@ -95,7 +95,12 @@ cases:
     body_not_contains:
     - 智能体执行行为与用户意图偏离，无法继续执行。
 - id: invalid_arguments_no_crash
-  name: 非法 arguments 不应导致检测崩溃
+  name: 非法 arguments 不崩溃且按工具名回退识别
+  risk_expect:
+    level: medium
+    score_range: "0.70-0.85"
+    log_expect: agent_info.type=AGENT_INTENT_DETECTION, tool_name=bash, tool_intent=EXECUTE, tool_cmd为空
+    rationale: arguments 非法 JSON 时不会崩溃，但 bash 工具名仍识别为 EXECUTE；FILE_READ 与 EXECUTE 不兼容，综合分约 0.74。
   stream: true
   request:
     tools:
@@ -112,8 +117,9 @@ cases:
       name: bash
       arguments: '{not-json'
   expect:
-    action: pass
+    action: block
     status:
     - 200
-    body_not_contains:
-    - 智能体执行行为与用户意图偏离，无法继续执行。
+    - 403
+    block_text: 智能体执行行为与用户意图偏离，无法继续执行。
+    require_done: false

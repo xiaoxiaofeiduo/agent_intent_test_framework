@@ -9,9 +9,17 @@
     :root { color-scheme: light; --border:#d8dde6; --bg:#f6f8fb; --text:#1f2937; --muted:#667085; --blue:#2563eb; --red:#c2410c; --green:#047857; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif; color:var(--text); background:var(--bg); }
-    header { padding:16px 24px; background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+    header { padding:14px 20px; background:#fff; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:16px; }
     h1 { font-size:20px; margin:0; }
-    main { display:grid; grid-template-columns: 390px minmax(520px,1fr); gap:16px; padding:16px; }
+    .top-config { margin:16px 16px 0; }
+    .app-layout { display:grid; grid-template-columns: 380px minmax(520px,1fr); gap:16px; padding:16px; align-items:start; }
+    .case-pane { position:sticky; top:16px; height:calc(100vh - 32px); display:flex; flex-direction:column; min-height:0; }
+    .case-pane h2 { margin-bottom:10px; }
+    .case-controls { display:grid; grid-template-columns:minmax(0,1fr); gap:8px; }
+    .config-grid { display:grid; grid-template-columns:minmax(260px,1.2fr) minmax(260px,1.2fr) minmax(160px,.7fr) minmax(120px,.45fr); gap:12px; align-items:end; }
+    .advanced-config { margin-top:10px; }
+    .advanced-config summary { color:var(--blue); cursor:pointer; font-size:13px; }
+    .advanced-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(220px,.6fr); gap:12px; align-items:start; margin-top:8px; }
     section { background:#fff; border:1px solid var(--border); border-radius:8px; padding:14px; }
     h2 { font-size:16px; margin:0 0 12px; }
     label { display:block; font-size:13px; color:var(--muted); margin:10px 0 6px; }
@@ -27,7 +35,7 @@
     .result-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
     .result-actions { display:flex; gap:8px; flex-wrap:wrap; }
     .hint { color:var(--muted); font-size:12px; line-height:1.5; }
-    .case-list { max-height:560px; overflow:auto; border:1px solid var(--border); border-radius:6px; }
+    .case-list { flex:1; min-height:0; overflow:auto; border:1px solid var(--border); border-radius:6px; margin-top:10px; }
     .case-item { display:grid; grid-template-columns: 28px 1fr auto; gap:8px; align-items:center; padding:8px; border-bottom:1px solid #eef1f5; cursor:pointer; }
     .case-item:last-child { border-bottom:0; }
     .case-item.active { background:#eff6ff; }
@@ -72,7 +80,8 @@
     summary { cursor:pointer; color:var(--blue); font-size:13px; }
     .copy-summary { display:flex; align-items:center; justify-content:space-between; gap:8px; }
     .copy-summary span { min-width:0; }
-    @media (max-width: 980px) { main { grid-template-columns:1fr; } .split { grid-template-columns:1fr; } }
+    @media (max-width: 1180px) { .config-grid, .advanced-grid { grid-template-columns:1fr 1fr; } }
+    @media (max-width: 980px) { .app-layout { grid-template-columns:1fr; } .case-pane { position:static; height:auto; max-height:70vh; } .split { grid-template-columns:1fr; } .config-grid, .advanced-grid { grid-template-columns:1fr; } }
     @media (max-width: 980px) { .detail-grid { grid-template-columns:1fr; } }
   </style>
 </head>
@@ -81,47 +90,61 @@
     <h1>智能体意图识别测试控制台</h1>
     <div class="hint" id="mockEndpoint"></div>
   </header>
-  <main>
-    <div>
-      <section>
-        <h2>防护设备入口</h2>
+  <section class="top-config">
+    <h2>防护设备入口</h2>
+    <div class="config-grid">
+      <div>
+        <label>device_url（必须填写防护设备入口，不是 Mock 地址）</label>
+        <input id="deviceUrl" value="http://10.10.125.211:18081/v1/chat/completions" placeholder="http://防护设备地址/v1/chat/completions" />
+      </div>
+      <div>
         <label>origin_url（可选，不经过防护设备的原站入口，用于响应对比）</label>
         <input id="originUrl" value="http://10.10.121.15:18081/v1/chat/completions" placeholder="http://原站地址/v1/chat/completions" />
-        <label>device_url（必须填写防护设备入口，不是 Mock 地址）</label>
-        <input id="deviceUrl" value="http://10.10.121.15:18081/v1/chat/completions" placeholder="http://防护设备地址/v1/chat/completions" />
-        <div class="row">
-          <div>
-            <label>API Key</label>
-            <input id="apiKey" placeholder="可为空" />
-          </div>
-          <div>
-            <label>超时秒数</label>
-            <input id="timeoutSeconds" type="number" value="30" />
-          </div>
+      </div>
+      <div>
+        <label>API Key</label>
+        <input id="apiKey" placeholder="可为空" />
+      </div>
+      <div>
+        <label>超时秒数</label>
+        <input id="timeoutSeconds" type="number" value="30" />
+      </div>
+    </div>
+    <details class="advanced-config">
+      <summary>高级配置</summary>
+      <div class="advanced-grid">
+        <div>
+          <label>额外请求头 JSON</label>
+          <textarea id="headersText" spellcheck="false">{}</textarea>
         </div>
-        <label>原站 API Key（可选，留空复用 API Key）</label>
-        <input id="originApiKey" placeholder="可为空" />
-        <label>额外请求头 JSON</label>
-        <textarea id="headersText" spellcheck="false">{}</textarea>
-        <label>原站额外请求头 JSON（可选，会覆盖同名请求头）</label>
-        <textarea id="originHeadersText" spellcheck="false">{}</textarea>
-        <p class="hint">防护设备的大模型上游应配置为页面顶部显示的 Mock Endpoint。</p>
-      </section>
+        <div>
+          <label>原站额外请求头 JSON（可选，会覆盖同名请求头）</label>
+          <textarea id="originHeadersText" spellcheck="false">{}</textarea>
+        </div>
+        <div>
+          <label>原站 API Key（可选，留空复用 API Key）</label>
+          <input id="originApiKey" placeholder="可为空" />
+          <p class="hint">防护设备的大模型上游应配置为页面顶部显示的 Mock Endpoint。</p>
+        </div>
+      </div>
+    </details>
+  </section>
 
-      <section style="margin-top:16px;">
+  <main class="app-layout">
+      <section class="case-pane">
         <h2>测试用例</h2>
-        <label>类型</label>
-        <select id="caseTypeFilter">
-          <option value="">全部类型</option>
-        </select>
-        <input id="caseFilter" placeholder="按 id/name 过滤" />
+        <div class="case-controls">
+          <select id="caseTypeFilter" aria-label="测试用例类型">
+            <option value="">全部类型</option>
+          </select>
+          <input id="caseFilter" placeholder="按 id/name 过滤" />
+        </div>
         <div class="toolbar">
           <button class="secondary" id="selectAllBtn">全选当前</button>
           <button class="secondary" id="clearBtn">清空</button>
         </div>
-        <div class="case-list" id="caseList" style="margin-top:10px;"></div>
+        <div class="case-list" id="caseList"></div>
       </section>
-    </div>
 
     <div>
       <section>
