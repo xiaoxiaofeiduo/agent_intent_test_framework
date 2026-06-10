@@ -110,6 +110,10 @@
 
       <section style="margin-top:16px;">
         <h2>测试用例</h2>
+        <label>类型</label>
+        <select id="caseTypeFilter">
+          <option value="">全部类型</option>
+        </select>
         <input id="caseFilter" placeholder="按 id/name 过滤" />
         <div class="toolbar">
           <button class="secondary" id="selectAllBtn">全选当前</button>
@@ -166,15 +170,16 @@
   </main>
 
   <script>
-    const state = { cases: [], activeId: null, selected: new Set(), overrides: {}, copyTexts: {}, reports: {} };
+    const state = { cases: [], caseTypes: [], activeId: null, selected: new Set(), overrides: {}, copyTexts: {}, reports: {} };
     const $ = (id) => document.getElementById(id);
     const blockText = '智能体执行行为与用户意图偏离，无法继续执行。';
 
     function pretty(obj) { return JSON.stringify(obj, null, 2); }
-    function caseMatches(c, keyword) {
+    function caseMatches(c, keyword, caseType) {
+      if (caseType && c.case_type !== caseType) return false;
       if (!keyword) return true;
       const k = keyword.toLowerCase();
-      return c.id.toLowerCase().includes(k) || c.name.toLowerCase().includes(k);
+      return c.id.toLowerCase().includes(k) || c.name.toLowerCase().includes(k) || (c.case_type || '').toLowerCase().includes(k);
     }
     function getActiveCase() { return state.cases.find(c => c.id === state.activeId); }
 
@@ -182,17 +187,33 @@
       const res = await fetch('/api/cases');
       const data = await res.json();
       state.cases = data.cases;
+      state.caseTypes = data.case_types || [];
       $('mockEndpoint').textContent = 'Mock Endpoint: ' + data.mock_endpoint;
       if (state.cases.length) state.activeId = state.cases[0].id;
+      renderCaseTypes();
       renderCases();
       renderActive();
     }
 
+    function renderCaseTypes() {
+      const select = $('caseTypeFilter');
+      const current = select.value;
+      select.innerHTML = '<option value="">全部类型</option>';
+      for (const type of state.caseTypes) {
+        const option = document.createElement('option');
+        option.value = type;
+        option.textContent = `${type.replaceAll('_', ' ')} (${state.cases.filter(c => c.case_type === type).length})`;
+        select.appendChild(option);
+      }
+      if (state.caseTypes.includes(current)) select.value = current;
+    }
+
     function renderCases() {
       const keyword = $('caseFilter').value.trim();
+      const caseType = $('caseTypeFilter').value;
       const list = $('caseList');
       list.innerHTML = '';
-      for (const c of state.cases.filter(c => caseMatches(c, keyword))) {
+      for (const c of state.cases.filter(c => caseMatches(c, keyword, caseType))) {
         const item = document.createElement('div');
         item.className = 'case-item' + (c.id === state.activeId ? ' active' : '');
         item.onclick = (ev) => {
@@ -210,7 +231,7 @@
           checkbox.checked ? state.selected.add(c.id) : state.selected.delete(c.id);
         };
         const title = document.createElement('div');
-        title.innerHTML = `<div class="case-title">${c.name}</div><div class="case-id">${c.id}</div>`;
+        title.innerHTML = `<div class="case-title">${c.name}</div><div class="case-id">${c.case_type || 'unknown'} / ${c.id}</div>`;
         const tag = document.createElement('span');
         tag.className = 'tag ' + c.expect_action;
         tag.textContent = c.expect_action;
@@ -720,9 +741,11 @@
     }
 
     $('caseFilter').oninput = renderCases;
+    $('caseTypeFilter').onchange = renderCases;
     $('selectAllBtn').onclick = () => {
       const keyword = $('caseFilter').value.trim();
-      for (const c of state.cases.filter(c => caseMatches(c, keyword))) state.selected.add(c.id);
+      const caseType = $('caseTypeFilter').value;
+      for (const c of state.cases.filter(c => caseMatches(c, keyword, caseType))) state.selected.add(c.id);
       renderCases();
     };
     $('clearBtn').onclick = () => { state.selected.clear(); renderCases(); };

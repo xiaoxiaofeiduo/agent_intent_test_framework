@@ -112,6 +112,7 @@ class ViewEndpointTests(TestCase):
         self.assertContains(response, 'value="http://10.10.121.15:18081/v1/chat/completions"')
         self.assertContains(response, 'id="originApiKey"')
         self.assertContains(response, 'id="originHeadersText"')
+        self.assertContains(response, 'id="caseTypeFilter"')
         self.assertContains(response, 'id="exportHtmlBtn"')
         self.assertContains(response, 'id="exportJsonBtn"')
 
@@ -130,9 +131,13 @@ class ViewEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.content)
         self.assertIn("mock_endpoint", data)
+        self.assertIn("case_types", data)
+        self.assertIsInstance(data["case_types"], list)
+        self.assertIn("file_lifecycle", data["case_types"])
         self.assertIn("cases", data)
         self.assertIsInstance(data["cases"], list)
         self.assertGreater(len(data["cases"]), 0)
+        self.assertIn("case_type", data["cases"][0])
 
     def test_cases_api_rejects_non_get(self) -> None:
         response = self.client.post("/api/cases")

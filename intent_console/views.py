@@ -17,7 +17,7 @@ from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse, S
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 
-from .common import compact_json
+from .common import compact_json, iter_data_files, load_json_compatible_yaml
 from .mock_llm import build_non_stream_response, build_stream_events, find_case, load_scenarios
 from .runner import build_request, run_case, write_reports, result_to_dict
 
@@ -34,6 +34,7 @@ class DjangoWebState:
         self.mock_workspace = Path(settings.MOCK_WORKSPACE)
         self.lock = threading.Lock()
         self.base_scenarios = load_scenarios(self.scenarios_dir)
+        self.scenario_types = load_scenario_types(self.scenarios_dir)
         self.active_scenarios = copy.deepcopy(self.base_scenarios)
 
     def reset_active_scenarios(self, cases: list[dict[str, Any]]) -> None:
@@ -48,6 +49,24 @@ class DjangoWebState:
         """读取当前活动场景。"""
         with self.lock:
             return self.active_scenarios
+
+
+def load_scenario_types(scenarios_dir: str | Path) -> dict[str, str]:
+    """按 YAML 文件名建立 case id 到场景类型的映射。"""
+    case_types: dict[str, str] = {}
+    for file_path in iter_data_files(scenarios_dir):
+        data = load_json_compatible_yaml(file_path)
+        if isinstance(data, dict) and "cases" in data:
+            case_list = data["cases"]
+        elif isinstance(data, list):
+            case_list = data
+        else:
+            continue
+        for case in case_list:
+            case_id = case.get("id") if isinstance(case, dict) else None
+            if case_id:
+                case_types[case_id] = file_path.stem
+    return case_types
 
 
 STATE = DjangoWebState()
@@ -90,10 +109,13 @@ def cases(request: HttpRequest) -> JsonResponse:
     for case in STATE.base_scenarios.values():
         request_data = case.get("request", {})
         expect = case.get("expect", {})
+        case_type = STATE.scenario_types.get(case["id"], "unknown")
         items.append(
             {
                 "id": case["id"],
                 "name": case.get("name", case["id"]),
+                "case_type": case_type,
+                "case_type_label": case_type.replace("_", " "),
                 "stream": bool(case.get("stream", False)),
                 "user_prompt": request_data.get("user_prompt", ""),
                 "expect_action": expect.get("action", "pass"),
@@ -101,7 +123,8 @@ def cases(request: HttpRequest) -> JsonResponse:
                 "mock_response": case.get("mock_response", {}),
             }
         )
-    return JsonResponse({"mock_endpoint": mock_endpoint(request), "cases": items})
+    case_types = sorted({item["case_type"] for item in items})
+    return JsonResponse({"mock_endpoint": mock_endpoint(request), "case_types": case_types, "cases": items})
 
 
 @csrf_exempt
