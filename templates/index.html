@@ -65,6 +65,17 @@
     .summary-card { border:1px solid #e6eaf0; border-radius:8px; padding:10px; background:var(--panel-soft); }
     .summary-card strong { display:block; font-size:18px; margin-bottom:2px; }
     .summary-card span { color:var(--muted); font-size:12px; }
+    .help-panel { display:none; position:fixed; inset:0; z-index:40; background:rgba(15,23,42,.42); padding:26px; overflow:auto; }
+    .help-panel.open { display:block; }
+    .help-dialog { max-width:980px; margin:0 auto; background:#fff; border:1px solid var(--border); border-radius:12px; box-shadow:0 24px 60px rgba(15,23,42,.22); overflow:hidden; }
+    .help-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 18px; border-bottom:1px solid #eef1f5; background:#f8fafc; }
+    .help-head h2 { margin:0; }
+    .help-body { padding:18px; display:grid; gap:16px; max-height:calc(100vh - 130px); overflow:auto; }
+    .help-section { border:1px solid #e6eaf0; border-radius:10px; padding:14px; background:#fff; }
+    .help-section h3 { margin:0 0 10px; font-size:15px; }
+    .help-section ul, .help-section ol { margin:0; padding-left:20px; line-height:1.7; }
+    .help-section code { background:#eef2f7; border-radius:4px; padding:1px 4px; }
+    .help-section pre { max-height:none; margin:8px 0 0; }
     .split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
     pre { background:#0f172a; color:#dbeafe; border-radius:6px; padding:10px; overflow:auto; max-height:360px; font-size:12px; line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
     table { width:100%; border-collapse:collapse; font-size:13px; }
@@ -108,9 +119,82 @@
     </div>
     <div class="header-actions">
       <span class="tag" id="selectedCount">已选 0</span>
+      <button class="secondary" id="helpBtn">帮助文档</button>
       <button id="runSelectedBtn">执行选中用例</button>
     </div>
   </header>
+
+  <div class="help-panel" id="helpPanel" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-dialog">
+      <div class="help-head">
+        <h2 id="helpTitle">使用帮助与 API 文档</h2>
+        <button class="secondary" id="closeHelpBtn">关闭</button>
+      </div>
+      <div class="help-body">
+        <div class="help-section">
+          <h3>控制台使用流程</h3>
+          <ol>
+            <li>在“连接配置”中填写 <code>device_url</code>，该地址必须是防护设备入口，不是 Mock LLM 地址。</li>
+            <li>将防护设备的大模型上游配置为页面顶部展示的 <code>Mock Endpoint</code>。</li>
+            <li>在左侧搜索或筛选测试用例，勾选需要执行的用例。</li>
+            <li>需要临时调整请求时，在右侧编辑 OpenAI 请求 JSON，点击“预览”确认最终请求。</li>
+            <li>点击“执行当前”或“执行选中用例”，在执行结果中查看断言、响应对比和工具模拟效果。</li>
+          </ol>
+        </div>
+        <div class="help-section">
+          <h3>用例执行注意事项</h3>
+          <ul>
+            <li><code>stream=true</code> 用例用于验证当前意图识别主检测链路。</li>
+            <li><code>expect.action=block</code> 要求响应中包含固定拦截文案。</li>
+            <li><code>expect.action=pass</code> 要求响应不包含拦截文案。</li>
+            <li>原站入口 <code>origin_url</code> 可选；配置后报告会展示原站与防护响应差异。</li>
+            <li>报告可通过“导出 HTML”或“导出 JSON”下载。</li>
+          </ul>
+        </div>
+        <div class="help-section">
+          <h3>页面 API</h3>
+          <ul>
+            <li><code>GET /healthz</code>：健康检查，返回 <code>ok</code>。</li>
+            <li><code>GET /api/cases</code>：获取全部用例、类型列表和 Mock Endpoint。</li>
+            <li><code>POST /api/preview</code>：预览指定用例最终发送的 OpenAI Chat Completions 请求。</li>
+            <li><code>POST /api/run</code>：执行多个用例，适合 Web 控制台批量执行。</li>
+            <li><code>POST /api/automation/run</code>：自动化执行单个指定用例。</li>
+            <li><code>GET /api/reports/&lt;filename&gt;</code>：下载执行报告。</li>
+            <li><code>POST /v1/chat/completions</code>：OpenAI-compatible Mock LLM 端点，供防护设备配置为上游。</li>
+          </ul>
+        </div>
+        <div class="help-section">
+          <h3>自动化执行接口</h3>
+          <p class="hint"><code>POST /api/automation/run</code> 按用例 ID 向指定防护目标执行单个用例。</p>
+          <pre>{
+  "device_url": "http://防护设备地址/v1/chat/completions",
+  "case_id": "fv_block_high_file_read_delete",
+  "api_key": "",
+  "headers": {},
+  "timeout_seconds": 30
+}</pre>
+          <ul>
+            <li><code>device_url</code> 必填，也兼容 <code>target_url</code>、<code>protected_url</code>。</li>
+            <li><code>case_id</code> 必填，值来自 <code>/api/cases</code> 返回的用例 ID。</li>
+            <li><code>headers</code>、<code>api_key</code>、<code>timeout_seconds</code> 可选。</li>
+            <li>响应中的 <code>ok</code> 表示断言是否通过，<code>result</code> 包含完整请求、响应和工具模拟效果。</li>
+          </ul>
+        </div>
+        <div class="help-section">
+          <h3>批量执行接口</h3>
+          <pre>{
+  "device_url": "http://防护设备地址/v1/chat/completions",
+  "origin_url": "http://原站地址/v1/chat/completions",
+  "case_ids": ["file_read_allow", "file_read_delete_block"],
+  "api_key": "",
+  "headers": {},
+  "origin_headers": {},
+  "timeout_seconds": 30
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <div class="workspace-shell">
     <section class="top-config">
@@ -847,6 +931,14 @@
       if (saveActiveCase()) renderActive();
     };
     $('previewBtn').onclick = previewActiveCase;
+    $('helpBtn').onclick = () => $('helpPanel').classList.add('open');
+    $('closeHelpBtn').onclick = () => $('helpPanel').classList.remove('open');
+    $('helpPanel').onclick = (ev) => {
+      if (ev.target === $('helpPanel')) $('helpPanel').classList.remove('open');
+    };
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') $('helpPanel').classList.remove('open');
+    });
     $('runSelectedBtn').onclick = () => runCases([...state.selected]);
     $('runActiveBtn').onclick = () => state.activeId && runCases([state.activeId]);
     $('exportHtmlBtn').onclick = () => exportReport('html');

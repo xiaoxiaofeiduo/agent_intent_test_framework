@@ -195,6 +195,56 @@ def run_cases(request: HttpRequest) -> JsonResponse:
 
 
 @csrf_exempt
+def automation_run_case(request: HttpRequest) -> JsonResponse:
+    """自动化入口：按目标地址执行指定用例。"""
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    try:
+        body = read_json_body(request)
+        case_id = str(body.get("case_id") or "").strip()
+        device_url = str(body.get("device_url") or body.get("target_url") or body.get("protected_url") or "").strip()
+        if not case_id:
+            return JsonResponse({"ok": False, "error": "case_id is required"}, status=400)
+        if not device_url:
+            return JsonResponse({"ok": False, "error": "device_url is required"}, status=400)
+        if case_id not in STATE.base_scenarios:
+            return JsonResponse({"ok": False, "error": f"unknown case_id: {case_id}"}, status=404)
+
+        case = copy.deepcopy(STATE.base_scenarios[case_id])
+        STATE.reset_active_scenarios([case])
+        config = {
+            "device_url": device_url,
+            "origin_url": body.get("origin_url") or "",
+            "api_key": body.get("api_key", ""),
+            "origin_api_key": body.get("origin_api_key", ""),
+            "headers": body.get("headers", {}) if isinstance(body.get("headers"), dict) else {},
+            "origin_headers": body.get("origin_headers", {}) if isinstance(body.get("origin_headers"), dict) else {},
+            "timeout_seconds": int(body.get("timeout_seconds") or 30),
+            "model": body.get("model") or "mock-agent-intent-model",
+            "mock_workspace": str(STATE.mock_workspace),
+        }
+        result = run_case(config, case)
+        json_path, md_path, html_path = write_reports([result], STATE.report_dir)
+        return JsonResponse({
+            "ok": result.passed,
+            "case_id": case_id,
+            "target_url": device_url,
+            "passed": result.passed,
+            "report_json": str(json_path),
+            "report_md": str(md_path),
+            "report_html": str(html_path),
+            "report_json_url": f"/api/reports/{quote(json_path.name)}",
+            "report_md_url": f"/api/reports/{quote(md_path.name)}",
+            "report_html_url": f"/api/reports/{quote(html_path.name)}",
+            "result": result_to_dict(result),
+        })
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    except Exception as exc:  # noqa: BLE001 - 自动化接口需要返回结构化错误
+        return JsonResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status=500)
+
+
+@csrf_exempt
 def mock_llm(request: HttpRequest) -> HttpResponse:
     """OpenAI-compatible Mock LLM 接口。"""
     if request.method != "POST":

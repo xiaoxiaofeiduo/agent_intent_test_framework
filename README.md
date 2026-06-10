@@ -105,8 +105,34 @@ GET  /healthz                  健康检查
 GET  /api/cases                获取用例列表
 POST /api/preview              预览 OpenAI Chat Completions 请求
 POST /api/run                  执行测试用例
+POST /api/automation/run       自动化执行单个指定用例
 POST /v1/chat/completions      OpenAI-compatible Mock LLM 接口
 ```
+
+## 自动化执行接口
+
+`POST /api/automation/run` 用于自动化系统按用例 ID 向指定防护目标执行单个用例。
+
+请求示例：
+
+```json
+{
+  "device_url": "http://防护设备地址/v1/chat/completions",
+  "case_id": "fv_block_high_file_read_delete",
+  "api_key": "",
+  "headers": {},
+  "timeout_seconds": 30
+}
+```
+
+字段说明：
+
+- `device_url`：必填，防护后目标地址；也兼容 `target_url`、`protected_url` 别名。
+- `case_id`：必填，`scenarios/` 中的用例 ID。
+- `api_key`、`headers`、`timeout_seconds`：可选，与 Web 控制台执行逻辑一致。
+- `origin_url`、`origin_api_key`、`origin_headers`：可选，用于原站响应对比。
+
+响应中 `ok` 表示用例断言是否通过，`result` 为单用例完整执行结果，`report_html_url` 和 `report_json_url` 可用于下载报告。
 
 ## 用例与检测覆盖
 

@@ -5,10 +5,12 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import SimpleTestCase, TestCase
 
+from ..runner import CaseResult
 from ..mock_llm import load_scenarios
 from ..views import (
     STATE,
@@ -176,6 +178,83 @@ class ViewEndpointTests(TestCase):
         self.assertEqual(response.status_code, 400)
         data = json.loads(response.content)
         self.assertIn("至少选择一个用例", data["error"])
+
+    def test_automation_run_requires_post(self) -> None:
+        response = self.client.get("/api/automation/run")
+        self.assertEqual(response.status_code, 405)
+
+    def test_automation_run_requires_case_id(self) -> None:
+        response = self.client.post(
+            "/api/automation/run",
+            data=json.dumps({"device_url": "http://device/v1/chat/completions"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertIn("case_id", data["error"])
+
+    def test_automation_run_requires_device_url(self) -> None:
+        response = self.client.post(
+            "/api/automation/run",
+            data=json.dumps({"case_id": "file_read_allow"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        data = json.loads(response.content)
+        self.assertIn("device_url", data["error"])
+
+    def test_automation_run_rejects_unknown_case(self) -> None:
+        response = self.client.post(
+            "/api/automation/run",
+            data=json.dumps({"case_id": "missing_case", "device_url": "http://device/v1/chat/completions"}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
+        data = json.loads(response.content)
+        self.assertIn("unknown case_id", data["error"])
+
+    @patch("intent_console.views.write_reports")
+    @patch("intent_console.views.run_case")
+    def test_automation_run_executes_case(self, run_case_mock, write_reports_mock) -> None:
+        run_case_mock.return_value = CaseResult(
+            case_id="file_read_allow",
+            name="合法读取文件",
+            passed=True,
+            elapsed_ms=12,
+            status_code=200,
+            expected_action="pass",
+            error="",
+            request={},
+            response_text="ok",
+            tool_effect={},
+        )
+        write_reports_mock.return_value = (
+            Path(settings.REPORT_DIR) / "auto.json",
+            Path(settings.REPORT_DIR) / "latest.md",
+            Path(settings.REPORT_DIR) / "auto.html",
+        )
+
+        response = self.client.post(
+            "/api/automation/run",
+            data=json.dumps({
+                "case_id": "file_read_allow",
+                "target_url": "http://device/v1/chat/completions",
+                "headers": {"X-Test": "1"},
+                "timeout_seconds": 9,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["case_id"], "file_read_allow")
+        self.assertEqual(data["target_url"], "http://device/v1/chat/completions")
+        run_case_mock.assert_called_once()
+        config = run_case_mock.call_args.args[0]
+        self.assertEqual(config["device_url"], "http://device/v1/chat/completions")
+        self.assertEqual(config["headers"], {"X-Test": "1"})
+        self.assertEqual(config["timeout_seconds"], 9)
 
     def test_report_download_returns_report_file(self) -> None:
         report_dir = Path(settings.REPORT_DIR)
