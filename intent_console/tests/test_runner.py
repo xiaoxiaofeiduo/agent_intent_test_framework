@@ -62,6 +62,12 @@ class BuildRequestTests(SimpleTestCase):
         self.assertEqual(body["messages"], [{"role": "user", "content": "hello"}])
         self.assertEqual(body["metadata"]["intent_case_id"], "case1")
 
+    def test_builds_mock_protection_metadata(self) -> None:
+        config = {"mock_protection": True}
+        case = {"id": "case1", "request": {"user_prompt": "hello"}}
+        body = build_request(config, case)
+        self.assertTrue(body["metadata"]["intent_mock_protection"])
+
     def test_builds_request_with_messages(self) -> None:
         config = {}
         case = {

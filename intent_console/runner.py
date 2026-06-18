@@ -129,6 +129,8 @@ def build_request(config: dict[str, Any], case: dict[str, Any]) -> dict[str, Any
         "stream": bool(stream),
         "metadata": {"intent_case_id": case["id"]},
     }
+    if config.get("mock_protection"):
+        body["metadata"]["intent_mock_protection"] = True
 
     tools = request.get("tools")
     if tools:

@@ -16,6 +16,9 @@ from typing import Any
 from .common import compact_json, iter_data_files, load_json_compatible_yaml
 
 
+DEFAULT_BLOCK_TEXT = "智能体执行行为与用户意图偏离，无法继续执行。"
+
+
 def load_scenarios(scenarios_dir: str | Path) -> dict[str, dict[str, Any]]:
     """加载所有场景，并按 id 建立索引。"""
     scenarios: dict[str, dict[str, Any]] = {}
@@ -107,13 +110,27 @@ def normalize_tool_calls(case: dict[str, Any]) -> list[dict[str, Any]]:
     return tool_calls
 
 
+def should_mock_protect(body: dict[str, Any], case: dict[str, Any]) -> bool:
+    """自动化自测直连 Mock LLM 时，按用例期望模拟防护侧拦截。"""
+    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    expect = case.get("expect") if isinstance(case.get("expect"), dict) else {}
+    return bool(metadata.get("intent_mock_protection")) and expect.get("action") == "block"
+
+
+def block_text_for_case(case: dict[str, Any]) -> str:
+    """读取用例配置里的拦截文案。"""
+    expect = case.get("expect") if isinstance(case.get("expect"), dict) else {}
+    return str(expect.get("block_text") or DEFAULT_BLOCK_TEXT)
+
+
 def build_non_stream_response(body: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
     """构造非流式 OpenAI Chat Completions 响应。"""
     response = case.get("mock_response", {})
-    tool_calls = normalize_tool_calls(case)
+    protected = should_mock_protect(body, case)
+    tool_calls = [] if protected else normalize_tool_calls(case)
     message: dict[str, Any] = {
         "role": "assistant",
-        "content": response.get("content"),
+        "content": block_text_for_case(case) if protected else response.get("content"),
     }
     finish_reason = "stop"
     if tool_calls:
@@ -153,7 +170,8 @@ def build_stream_events(body: dict[str, Any], case: dict[str, Any]) -> list[dict
     ]
 
     response = case.get("mock_response", {})
-    content = response.get("content")
+    protected = should_mock_protect(body, case)
+    content = block_text_for_case(case) if protected else response.get("content")
     if content:
         events.append(
             {
@@ -162,7 +180,8 @@ def build_stream_events(body: dict[str, Any], case: dict[str, Any]) -> list[dict
             }
         )
 
-    for index, tool_call in enumerate(normalize_tool_calls(case)):
+    tool_calls = [] if protected else normalize_tool_calls(case)
+    for index, tool_call in enumerate(tool_calls):
         events.append(
             {
                 **base,
@@ -185,7 +204,7 @@ def build_stream_events(body: dict[str, Any], case: dict[str, Any]) -> list[dict
             }
         )
 
-    finish_reason = "tool_calls" if normalize_tool_calls(case) else "stop"
+    finish_reason = "tool_calls" if tool_calls else "stop"
     events.append(
         {
             **base,
@@ -193,4 +212,3 @@ def build_stream_events(body: dict[str, Any], case: dict[str, Any]) -> list[dict
         }
     )
     return events
-

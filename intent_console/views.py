@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from django.conf import settings
 from django.http import FileResponse, HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
@@ -224,6 +224,7 @@ def automation_run_case(request: HttpRequest) -> JsonResponse:
             "timeout_seconds": int(body.get("timeout_seconds") or 30),
             "model": body.get("model") or "mock-agent-intent-model",
             "mock_workspace": str(STATE.mock_workspace),
+            "mock_protection": is_self_mock_endpoint(device_url, request),
         }
         result = run_case(config, case)
         json_path, md_path, html_path = write_reports([result], STATE.report_dir)
@@ -404,3 +405,22 @@ def normalize_frontend_case(
 def mock_endpoint(request: HttpRequest) -> str:
     """根据当前请求构造 Mock LLM 上游地址。"""
     return request.build_absolute_uri("/v1/chat/completions")
+
+
+def is_self_mock_endpoint(url: str, request: HttpRequest) -> bool:
+    """判断自动化目标是否直连当前服务的 Mock LLM 端点。"""
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    if parsed.path.rstrip("/") != "/v1/chat/completions":
+        return False
+
+    hostname = (parsed.hostname or "").lower()
+    request_url = urlparse(f"//{request.get_host()}")
+    request_hostname = (request_url.hostname or "").lower()
+    return bool(
+        hostname
+        and hostname == request_hostname
+        and (parsed.port or "") == (request_url.port or "")
+    )
