@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -242,6 +244,102 @@ def automation_run_case(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"ok": False, "error": str(exc)}, status=400)
     except Exception as exc:  # noqa: BLE001 - 自动化接口需要返回结构化错误
         return JsonResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status=500)
+
+
+@csrf_exempt
+def reload_scenarios(request: HttpRequest) -> JsonResponse:
+    """热点重载场景：无需重启服务即可使新增/修改的 YAML 生效。
+
+    同时扫描 scenarios/ 目录，检测新增文件并自动载入。
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "method not allowed，请使用 POST"}, status=405)
+    try:
+        before_count = len(STATE.base_scenarios)
+        before_ids = set(STATE.base_scenarios.keys())
+
+        STATE.base_scenarios = load_scenarios(STATE.scenarios_dir)
+        STATE.scenario_types = load_scenario_types(STATE.scenarios_dir)
+        with STATE.lock:
+            STATE.active_scenarios = copy.deepcopy(STATE.base_scenarios)
+
+        after_count = len(STATE.base_scenarios)
+        after_ids = set(STATE.base_scenarios.keys())
+        added = sorted(after_ids - before_ids)
+        removed = sorted(before_ids - after_ids)
+
+        return JsonResponse({
+            "ok": True,
+            "message": f"场景已重载。变更: +{len(added)}/-{len(removed)}，共 {after_count} 个场景。",
+            "before_count": before_count,
+            "after_count": after_count,
+            "added": added,
+            "removed": removed,
+            "reloaded_at": datetime.now().isoformat(timespec="seconds"),
+        })
+    except Exception as exc:  # noqa: BLE001 - Web API 需要把错误返回给页面
+        return JsonResponse({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, status=500)
+
+
+def validate_scenarios(request: HttpRequest) -> JsonResponse:
+    """校验 scenarios/ 目录下所有 YAML 文件的结构完整性。
+
+    返回每个文件的校验结果，包括 case 数量、必填字段检查、id 唯一性等。
+    """
+    if request.method != "GET":
+        return JsonResponse({"error": "method not allowed"}, status=405)
+    results: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    total_cases = 0
+
+    for file_path in iter_data_files(STATE.scenarios_dir):
+        file_status = {"file": file_path.name, "ok": True, "case_count": 0, "issues": []}
+        try:
+            data = load_json_compatible_yaml(file_path)
+            cases = data.get("cases") if isinstance(data, dict) else data
+            if not isinstance(cases, list):
+                file_status["ok"] = False
+                file_status["issues"].append("顶层结构必须包含 cases 数组或本身为数组")
+                results.append(file_status)
+                continue
+
+            file_status["case_count"] = len(cases)
+            total_cases += len(cases)
+            seen_ids: set[str] = set()
+            for idx, case in enumerate(cases):
+                if not isinstance(case, dict):
+                    file_status["issues"].append(f"第 {idx+1} 个 case 不是对象")
+                    file_status["ok"] = False
+                    continue
+                case_id = case.get("id")
+                if not case_id:
+                    file_status["issues"].append(f"第 {idx+1} 个 case 缺少 id")
+                    file_status["ok"] = False
+                elif case_id in seen_ids:
+                    file_status["issues"].append(f"case id 重复: {case_id}")
+                    file_status["ok"] = False
+                else:
+                    seen_ids.add(case_id)
+                req = case.get("request") if isinstance(case.get("request"), dict) else {}
+                if not req.get("messages") and not req.get("user_prompt"):
+                    file_status["issues"].append(f"{case_id}: request.messages 和 request.user_prompt 均缺失")
+                expect = case.get("expect") if isinstance(case.get("expect"), dict) else {}
+                if not expect:
+                    file_status["issues"].append(f"{case_id}: 缺少 expect 断言配置")
+            results.append(file_status)
+            if not file_status["ok"]:
+                errors.append(file_status)
+        except Exception as exc:  # noqa: BLE001 - 校验工具需容错
+            results.append({"file": file_path.name, "ok": False, "case_count": 0, "issues": [f"加载失败: {exc}"]})
+            errors.append({"file": file_path.name, "error": str(exc)})
+
+    return JsonResponse({
+        "ok": len(errors) == 0,
+        "total_files": len(results),
+        "total_cases": total_cases,
+        "error_count": len(errors),
+        "results": results,
+    })
 
 
 @csrf_exempt

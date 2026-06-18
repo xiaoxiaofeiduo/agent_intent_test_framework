@@ -119,6 +119,7 @@
     </div>
     <div class="header-actions">
       <span class="tag" id="selectedCount">已选 0</span>
+      <button class="secondary" id="reloadScenariosBtn" title="热加载场景文件">🔄 重载场景</button>
       <button class="secondary" id="helpBtn">帮助文档</button>
       <button id="runSelectedBtn">执行选中用例</button>
     </div>
@@ -935,6 +936,26 @@
     $('closeHelpBtn').onclick = () => $('helpPanel').classList.remove('open');
     $('helpPanel').onclick = (ev) => {
       if (ev.target === $('helpPanel')) $('helpPanel').classList.remove('open');
+    };
+    $('reloadScenariosBtn').onclick = async () => {
+      const btn = $('reloadScenariosBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ 重载中...';
+      try {
+        const resp = await fetch('/api/scenarios/reload', { method: 'POST' });
+        const data = await resp.json();
+        if (data.ok) {
+          $('statusText').textContent = data.message;
+          await loadCases();
+        } else {
+          $('statusText').textContent = '重载失败: ' + (data.error || '未知错误');
+        }
+      } catch (err) {
+        $('statusText').textContent = '重载请求失败: ' + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔄 重载场景';
+      }
     };
     document.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') $('helpPanel').classList.remove('open');

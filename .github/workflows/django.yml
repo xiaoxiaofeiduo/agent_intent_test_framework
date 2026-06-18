@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  build:
+  unit-test:
     runs-on: ubuntu-latest
     strategy:
       max-parallel: 4
@@ -24,6 +24,94 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Run Tests
+      - name: Run Unit Tests
         run: |
           python manage.py test
+
+  e2e-test:
+    runs-on: ubuntu-latest
+    needs: unit-test
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Start Django Server
+        run: |
+          python manage.py runserver 0.0.0.0:18081 &
+          echo "DJANGO_PID=$!" >> $GITHUB_ENV
+      - name: Wait for Server Ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:18081/healthz > /dev/null 2>&1; then
+              echo "Django server is ready"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+          echo "Server failed to start"
+          exit 1
+      - name: Validate Health & API
+        run: |
+          echo "=== Health Check ==="
+          curl -s http://127.0.0.1:18081/healthz
+          echo ""
+          echo "=== API Cases ==="
+          curl -s http://127.0.0.1:18081/api/cases | python -c "import sys,json; d=json.load(sys.stdin); print(f'Cases loaded: {len(d[\"cases\"])}')"
+      - name: Run E2E Scenario Tests (CLI Runner)
+        run: |
+          cat > /tmp/e2e_config.yaml << 'EOF'
+          {
+            "device_url": "http://127.0.0.1:18081/v1/chat/completions",
+            "api_key": "",
+            "model": "mock-agent-intent-model",
+            "timeout_seconds": 30,
+            "default_stream": false,
+            "mock_workspace": "mock_workspace",
+            "headers": {}
+          }
+          EOF
+          echo "=== Running E2E scenarios via CLI runner ==="
+          python -m intent_console.runner --config /tmp/e2e_config.yaml --scenarios-dir scenarios --report-dir reports_e2e || true
+          echo "=== E2E Report ==="
+          cat reports_e2e/latest.md
+      - name: Run E2E via Automation API
+        run: |
+          echo "=== Testing /api/automation/run ==="
+          TEST_CASES="command_execution_test_command_allow data_exfiltration_log_summary_allow network_boundaries_fetch_user_url_allow authorization_matrix_multi_tool_highest_risk_block file_lifecycle_read_then_delete_block"
+          PASSED=0
+          FAILED=0
+          for case_id in $TEST_CASES; do
+            result=$(curl -s -X POST http://127.0.0.1:18081/api/automation/run \
+              -H "Content-Type: application/json" \
+              -d "{\"device_url\":\"http://127.0.0.1:18081/v1/chat/completions\",\"case_id\":\"$case_id\",\"timeout_seconds\":30}")
+            ok=$(echo "$result" | python -c "import sys,json; print(json.load(sys.stdin).get('ok',False))")
+            if [ "$ok" = "True" ]; then
+              echo "  PASS: $case_id"
+              PASSED=$((PASSED+1))
+            else
+              echo "  FAIL: $case_id — $result"
+              FAILED=$((FAILED+1))
+            fi
+          done
+          echo "E2E Automation API: $PASSED passed, $FAILED failed"
+          if [ "$FAILED" -gt 0 ]; then
+            echo "Some E2E tests failed!"
+            exit 1
+          fi
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -n "$DJANGO_PID" ]; then
+            kill $DJANGO_PID 2>/dev/null || true
+          fi

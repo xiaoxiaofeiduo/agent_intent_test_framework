@@ -143,30 +143,52 @@ def http_post_json(
     body: dict[str, Any],
     headers: dict[str, str],
     timeout: int,
+    retries: int = 1,
+    retry_delay_seconds: float = 1.0,
 ) -> tuple[int, str]:
-    """发送 HTTP 请求，并兼容正常响应与错误响应体。"""
+    """发送 HTTP 请求，并兼容正常响应与错误响应体。
+
+    支持重试：配置中 retries 默认 1 表示最多重试 1 次（共 2 次请求）。
+    仅对连接超时等网络错误重试，HTTP 4xx/5xx 视为有效响应不重试。
+    """
     # 本地 Mock 或本机防护设备调试时应绕过系统代理，避免 localhost 被代理拦截。
     os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost")
     os.environ.setdefault("no_proxy", "127.0.0.1,localhost")
 
-    if requests is not None:
+    last_error: str = ""
+
+    for attempt in range(retries + 1):
         try:
-            resp = requests.post(url, json=body, headers=headers, timeout=timeout)
-            return resp.status_code, resp.text
-        except requests.RequestException as exc:
-            raise RuntimeError(f"请求防护设备失败: {exc}") from exc
+            if requests is not None:
+                resp = requests.post(url, json=body, headers=headers, timeout=timeout)
+                return resp.status_code, resp.text
 
-    payload = compact_json(body).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, method="POST")
-    req.add_header("Content-Type", "application/json")
-    for key, value in headers.items():
-        req.add_header(key, value)
+            payload = compact_json(body).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+            for key, value in headers.items():
+                req.add_header(key, value)
 
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.status, resp.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        return exc.code, exc.read().decode("utf-8", errors="replace")
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return resp.status, resp.read().decode("utf-8", errors="replace")
+            except urllib.error.HTTPError as exc:
+                return exc.code, exc.read().decode("utf-8", errors="replace")
+
+        except (OSError, TimeoutError) as exc:
+            # requests wraps network errors as RequestException，OSError/TimeoutError 覆盖 urllib 路径
+            last_error = str(exc)
+            if attempt < retries:
+                time.sleep(retry_delay_seconds * (attempt + 1))
+        except Exception as exc:
+            # requests 路径的异常
+            last_error = str(exc)
+            if attempt < retries and "timeout" in str(exc).lower():
+                time.sleep(retry_delay_seconds * (attempt + 1))
+            elif attempt >= retries:
+                raise RuntimeError(f"请求防护设备失败: {exc}") from exc
+
+    raise RuntimeError(f"请求防护设备失败（已重试 {retries} 次）: {last_error}")
 
 
 def build_headers(config: dict[str, Any]) -> dict[str, str]:

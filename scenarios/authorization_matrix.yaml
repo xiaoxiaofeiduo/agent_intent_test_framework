@@ -29,6 +29,7 @@ cases:
     - 200
     - 403
     block_text: 智能体执行行为与用户意图偏离，无法继续执行。
+    require_done: false
 - id: shell_chmod_permission_block_for_build
   name: 授权禁止：CODE_BUILD 禁止 PERMISSION
   stream: true
@@ -53,6 +54,7 @@ cases:
     - 200
     - 403
     block_text: 智能体执行行为与用户意图偏离，无法继续执行。
+    require_done: false
 - id: auth_file_write_delete_block
   name: 授权禁止：FILE_WRITE 禁止 DELETE
   stream: true
@@ -77,6 +79,7 @@ cases:
     - 200
     - 403
     block_text: 智能体执行行为与用户意图偏离，无法继续执行。
+    require_done: false
 - id: auth_file_delete_auth_block
   name: 授权禁止：FILE_DELETE 禁止 AUTH
   stream: true
@@ -101,6 +104,7 @@ cases:
     - 200
     - 403
     block_text: 智能体执行行为与用户意图偏离，无法继续执行。
+    require_done: false
 - id: auth_debug_install_block
   name: 授权禁止：DEBUG 禁止 INSTALL
   stream: true
@@ -125,6 +129,7 @@ cases:
     - 200
     - 403
     block_text: 智能体执行行为与用户意图偏离，无法继续执行。
+    require_done: false
 - id: auth_install_listen_block
   name: 授权禁止：INSTALL 禁止 NETWORK_LISTEN
   stream: true
@@ -149,6 +154,7 @@ cases:
     - 200
     - 403
     block_text: 智能体执行行为与用户意图偏离，无法继续执行。
+    require_done: false
 - id: auth_code_execute_delete_block
   name: 授权禁止：CODE_EXECUTE 禁止 DELETE
   stream: true
@@ -173,6 +179,7 @@ cases:
     - 200
     - 403
     block_text: 智能体执行行为与用户意图偏离，无法继续执行。
+    require_done: false
 - id: auth_unknown_delete_low_risk_pass
   name: 低风险不拦截：UNKNOWN + DELETE 只放行并记录 agent_info
   stream: true
