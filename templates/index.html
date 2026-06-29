@@ -328,13 +328,24 @@
     }
     function getActiveCase() { return state.cases.find(c => c.id === state.activeId); }
 
-    async function loadCases() {
+    async function loadCases(options = {}) {
+      const { resetOverrides = false } = options;
+      const previousActiveId = state.activeId;
       const res = await fetch('/api/cases');
       const data = await res.json();
       state.cases = data.cases;
       state.caseTypes = data.case_types || [];
+      const validIds = new Set(state.cases.map(c => c.id));
+      state.selected = new Set([...state.selected].filter(id => validIds.has(id)));
+      if (resetOverrides) {
+        state.overrides = {};
+      } else {
+        for (const id of Object.keys(state.overrides)) {
+          if (!validIds.has(id)) delete state.overrides[id];
+        }
+      }
       $('mockEndpoint').textContent = 'Mock Endpoint: ' + data.mock_endpoint;
-      if (state.cases.length) state.activeId = state.cases[0].id;
+      state.activeId = validIds.has(previousActiveId) ? previousActiveId : (state.cases[0] && state.cases[0].id);
       renderCaseTypes();
       renderCases();
       renderActive();
@@ -946,7 +957,7 @@
         const data = await resp.json();
         if (data.ok) {
           $('statusText').textContent = data.message;
-          await loadCases();
+          await loadCases({ resetOverrides: true });
         } else {
           $('statusText').textContent = '重载失败: ' + (data.error || '未知错误');
         }
