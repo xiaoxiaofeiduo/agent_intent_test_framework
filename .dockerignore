@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# VCS
+.git/
+.github/
+
+# Runtime generated data
+db.sqlite3
+reports/
+mock_workspace/
+logs/
+
+# Development files
+.claude/
+docs/
+.DS_Store
+
+# Documentation (except README)
+*.md
+!README.md
