@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    image: agent-intent-test:latest
+    image: ${IMAGE_TAG:-registry.dev-rs.com/riversecurity/agent_intent_test:1.0}
     container_name: agent_intent_test
     ports:
       - "${APP_PORT:-18081}:18081"
@@ -24,7 +24,7 @@ services:
 
   app-dev:
     build: .
-    image: agent-intent-test:latest
+    image: ${IMAGE_TAG:-registry.dev-rs.com/riversecurity/agent_intent_test:1.0}
     container_name: agent_intent_test_dev
     ports:
       - "${APP_PORT:-18081}:18081"
