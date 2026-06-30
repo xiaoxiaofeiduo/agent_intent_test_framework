@@ -15,7 +15,7 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser
 WORKDIR /app
 
 # 复制依赖
-COPY --from=builder /root/.local /home/appuser/.local
+COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
 ENV PATH="/home/appuser/.local/bin:$PATH"
 
 # 复制应用代码

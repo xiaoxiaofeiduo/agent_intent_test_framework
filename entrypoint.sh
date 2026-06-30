@@ -22,5 +22,8 @@ JSONEOF
 echo "Generated config.yaml:"
 cat "$CONFIG_FILE"
 
+# 运行 Django 数据库迁移（幂等操作）
+python manage.py migrate --noinput
+
 # 执行传入的命令
 exec "$@"
