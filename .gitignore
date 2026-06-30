@@ -9,5 +9,9 @@ reports/
 mock_workspace/
 db.sqlite3
 scenarios/functional_validation_*.yaml
+docs/
+
+# Environment file (local testing only, use .env.example as template)
+.env
 
 .DS_Store

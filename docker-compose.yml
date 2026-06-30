@@ -1,0 +1,48 @@
+services:
+  app:
+    build: .
+    image: agent-intent-test:latest
+    container_name: agent_intent_test
+    ports:
+      - "${APP_PORT:-18081}:18081"
+    environment:
+      - DEVICE_URL=${DEVICE_URL:-http://10.10.121.15:18081/v1/chat/completions}
+      - API_KEY=${API_KEY:-}
+      - MODEL=${MODEL:-mock-agent-intent-model}
+      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-30}
+      - DEFAULT_STREAM=${DEFAULT_STREAM:-false}
+      - ORIGIN_URL=${ORIGIN_URL:-}
+      - ORIGIN_API_KEY=${ORIGIN_API_KEY:-}
+    volumes:
+      # 仅持久化运行时数据目录，db.sqlite3 在 /app 下自动创建（项目无 Django models，无需持久化）
+      - reports_data:/app/reports
+      - workspace_data:/app/mock_workspace
+    restart: unless-stopped
+    profiles:
+      - prod
+
+  app-dev:
+    build: .
+    image: agent-intent-test:latest
+    container_name: agent_intent_test_dev
+    ports:
+      - "${APP_PORT:-18081}:18081"
+    environment:
+      - DEVICE_URL=${DEVICE_URL:-http://10.10.121.15:18081/v1/chat/completions}
+      - API_KEY=${API_KEY:-}
+      - MODEL=${MODEL:-mock-agent-intent-model}
+      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-30}
+      - DEFAULT_STREAM=${DEFAULT_STREAM:-false}
+      - ORIGIN_URL=${ORIGIN_URL:-}
+      - ORIGIN_API_KEY=${ORIGIN_API_KEY:-}
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - /app/.venv
+    restart: "no"
+    profiles:
+      - dev
+
+volumes:
+  reports_data:
+  workspace_data:
