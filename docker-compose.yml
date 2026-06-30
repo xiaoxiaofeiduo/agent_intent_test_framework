@@ -14,10 +14,9 @@ services:
       - ORIGIN_URL=${ORIGIN_URL:-}
       - ORIGIN_API_KEY=${ORIGIN_API_KEY:-}
     volumes:
-      # Django 内置 models 存在但项目不依赖它们 — db.sqlite3 丢失后可重新生成
+      # reports 和 mock_workspace 通过 named volumes 持久化；db.sqlite3 由 Django 自动创建，无需持久化
       - reports_data:/app/reports
       - workspace_data:/app/mock_workspace
-      - db_data:/app/db.sqlite3
     restart: unless-stopped
     profiles:
       - prod
@@ -47,4 +46,3 @@ services:
 volumes:
   reports_data:
   workspace_data:
-  db_data:
