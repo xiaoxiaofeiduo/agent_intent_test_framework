@@ -11,17 +11,23 @@ env/
 # VCS
 .git/
 .github/
+.gitignore
 
 # Runtime generated data
 db.sqlite3
 reports/
 mock_workspace/
 logs/
+scenarios/functional_validation_*.yaml
 
 # Development files
 .claude/
+.superpowers/
 docs/
 .DS_Store
+
+# Environment files (may contain secrets)
+.env*
 
 # Documentation (except README)
 *.md
