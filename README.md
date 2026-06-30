@@ -241,6 +241,47 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now agent_intent_test
 ```
 
+## 容器化部署（Docker）
+
+### 准备工作
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入实际的 DEVICE_URL 和 API_KEY
+```
+
+### 本地开发
+
+```bash
+docker compose --profile dev up
+```
+
+源码挂载模式，修改代码后自动热重载。
+
+### 生产部署
+
+```bash
+docker compose --profile prod up -d
+```
+
+数据（SQLite、报告、mock workspace）通过 Docker volumes 持久化。
+
+### 常用命令
+
+```bash
+# 查看日志
+docker compose logs -f app
+
+# 查看状态
+docker compose ps
+
+# 停止
+docker compose --profile prod down
+
+# 重新构建
+docker compose build --no-cache
+```
+
 ## 推荐测试流程
 
 1. 启动本项目 Django 服务。
