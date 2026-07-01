@@ -28,7 +28,8 @@ RUN chmod +x entrypoint.sh
 RUN mkdir -p /app/reports /app/mock_workspace && \
     chown appuser:appuser /app/reports /app/mock_workspace
 
-# 环境变量
+# 环境变量（HOME 指向 appuser 目录，让 pip --user 安装的包在 root 和 appuser 下都能被 Python 找到）
+ENV HOME=/home/appuser
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 18081
