@@ -1,12 +1,12 @@
 services:
   app:
     build: .
-    image: ${IMAGE_TAG:-registry.dev-rs.com/riversecurity/agent_intent_test:1.0}
+    image: ${IMAGE_TAG:-agent-intent-test:latest}
     container_name: agent_intent_test
     ports:
       - "${APP_PORT:-18081}:18081"
     environment:
-      - DEVICE_URL=${DEVICE_URL:-http://10.10.121.15:18081/v1/chat/completions}
+      - DEVICE_URL=${DEVICE_URL:-}
       - API_KEY=${API_KEY:-}
       - MODEL=${MODEL:-mock-agent-intent-model}
       - TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-30}
@@ -23,12 +23,12 @@ services:
 
   app-dev:
     build: .
-    image: ${IMAGE_TAG:-registry.dev-rs.com/riversecurity/agent_intent_test:1.0}
+    image: ${IMAGE_TAG:-agent-intent-test:latest}
     container_name: agent_intent_test_dev
     ports:
       - "${APP_PORT:-18081}:18081"
     environment:
-      - DEVICE_URL=${DEVICE_URL:-http://10.10.121.15:18081/v1/chat/completions}
+      - DEVICE_URL=${DEVICE_URL:-}
       - API_KEY=${API_KEY:-}
       - MODEL=${MODEL:-mock-agent-intent-model}
       - TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-30}

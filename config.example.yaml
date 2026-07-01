@@ -1,6 +1,6 @@
 {
-  "device_url": "http://10.10.121.15:18081/v1/chat/completions",
-  "origin_url": "http://10.10.121.15:18081/v1/chat/completions",
+  "device_url": "http://YOUR_PROTECTION_DEVICE_HOST:18081/v1/chat/completions",
+  "origin_url": "http://YOUR_ORIGIN_HOST:18081/v1/chat/completions",
   "api_key": "",
   "origin_api_key": "",
   "model": "mock-agent-intent-model",
