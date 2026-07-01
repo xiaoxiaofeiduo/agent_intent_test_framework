@@ -31,5 +31,11 @@ done
 # 运行 Django 数据库迁移（幂等操作）
 python manage.py migrate --noinput
 
-# 切换到非 root 用户执行应用
-exec runuser -u appuser -- "$@"
+# 切换到 appuser 执行应用（使用 Python 内置 os.setuid，不依赖 runuser/gosu）
+exec python -c "
+import os, pwd, sys
+pw = pwd.getpwnam('appuser')
+os.setgid(pw.pw_gid)
+os.setuid(pw.pw_uid)
+os.execvp(sys.argv[1], sys.argv[1:])
+" "$@"
