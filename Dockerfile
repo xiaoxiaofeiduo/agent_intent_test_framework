@@ -24,9 +24,9 @@ COPY . .
 # 确保 entrypoint 可执行
 RUN chmod +x entrypoint.sh
 
-# 设置非 root 拥有者
-RUN chown -R appuser:appuser /app
-USER appuser
+# 预创建数据目录（named volume 挂载会覆盖，entrypoint 启动时再修复权限）
+RUN mkdir -p /app/reports /app/mock_workspace && \
+    chown appuser:appuser /app/reports /app/mock_workspace
 
 # 环境变量
 ENV PYTHONUNBUFFERED=1

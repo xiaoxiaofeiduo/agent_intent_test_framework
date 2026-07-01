@@ -22,8 +22,14 @@ JSONEOF
 echo "Generated config.yaml:"
 cat "$CONFIG_FILE"
 
+# 修复 named volume 挂载目录的权限（volume 初始属主为 root，appuser 无法写入）
+for dir in /app/reports /app/mock_workspace; do
+  mkdir -p "$dir"
+  chown appuser:appuser "$dir"
+done
+
 # 运行 Django 数据库迁移（幂等操作）
 python manage.py migrate --noinput
 
-# 执行传入的命令
-exec "$@"
+# 切换到非 root 用户执行应用
+exec runuser -u appuser -- "$@"
