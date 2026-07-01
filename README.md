@@ -250,7 +250,27 @@ cp .env.example .env
 # 编辑 .env，填入实际的 DEVICE_URL 和 API_KEY
 ```
 
-### 本地开发
+### 直接使用镜像（无需本地构建）
+
+从 GitHub Container Registry 拉取预构建镜像：
+
+```bash
+docker pull ghcr.io/xiaoxiaofeiduo/agent-intent-test:latest
+```
+
+在 `.env` 中指定镜像地址：
+
+```bash
+IMAGE_TAG=ghcr.io/xiaoxiaofeiduo/agent-intent-test:latest
+```
+
+然后启动即可：
+
+```bash
+docker compose --profile prod up -d
+```
+
+### 本地开发（源码构建）
 
 ```bash
 docker compose --profile dev up
