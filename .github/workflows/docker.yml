@@ -1,0 +1,110 @@
+name: Docker CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  IMAGE_NAME: agent-intent-test
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t ${{ env.IMAGE_NAME }}:latest .
+
+      - name: Start container
+        run: |
+          docker run -d --name agent_intent_test \
+            -p 18081:18081 \
+            -e DEVICE_URL=http://127.0.0.1:18081/v1/chat/completions \
+            ${{ env.IMAGE_NAME }}:latest
+
+      - name: Wait for healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:18081/ > /dev/null 2>&1; then
+              echo "Container ready after $((i*2))s"
+              exit 0
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+          echo "=== Container logs ==="
+          docker logs agent_intent_test
+          exit 1
+
+      - name: Test web console
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18081/)
+          if [ "$STATUS" = "200" ]; then
+            echo "✓ Web console OK (HTTP $STATUS)"
+          else
+            echo "✗ Web console FAIL (HTTP $STATUS)"
+            exit 1
+          fi
+
+      - name: Test mock LLM endpoint
+        run: |
+          RESPONSE=$(curl -s -X POST http://127.0.0.1:18081/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -d '{"model":"test","messages":[{"role":"user","content":"hello"}]}')
+          if echo "$RESPONSE" | grep -q "chat.completion"; then
+            echo "✓ Mock LLM OK"
+          else
+            echo "✗ Mock LLM FAIL — $RESPONSE"
+            exit 1
+          fi
+
+      - name: E2E dry-run (list scenarios)
+        run: |
+          docker exec agent_intent_test python -m intent_console.runner \
+            --config /app/config.yaml --scenarios-dir scenarios --dry-run
+
+      - name: Run E2E tests via CLI runner
+        run: |
+          docker exec agent_intent_test python -m intent_console.runner \
+            --config /app/config.yaml --scenarios-dir scenarios --report-dir reports_e2e || true
+          echo "=== E2E Report ==="
+          docker exec agent_intent_test cat /app/reports_e2e/latest.md
+
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker logs agent_intent_test
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f agent_intent_test
+
+  push-to-ghcr:
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/agent-intent-test:latest
+            ghcr.io/${{ github.repository_owner }}/agent-intent-test:${{ github.sha }}
